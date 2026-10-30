@@ -296,6 +296,69 @@ public class SettingsActivity extends Activity {
         int barPad = (int) (6 * dp);
         barWrap.setPadding(barPad, barPad, barPad, barPad);
 
+        // ==== 液态玻璃 Dock 栏手势拖动切换功能 ====
+        barWrap.setOnTouchListener(new View.OnTouchListener() {
+            private float startX;
+            private float lastX;
+            private boolean isDragging = false;
+
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                switch (event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        startX = event.getX();
+                        lastX = startX;
+                        isDragging = false;
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        float dx = event.getX() - lastX;
+                        if (Math.abs(event.getX() - startX) > 12 * dp) {
+                            isDragging = true;
+                            // 拖拽阻尼带动指示条跟随位移
+                            float newPillX = pill.getX() + dx * 0.75f;
+                            float minX = bar.getX() + 3 * dp;
+                            float maxX = bar.getX() + tabItems[tabItems.length - 1].getX() + 3 * dp;
+                            if (newPillX >= minX - 10 * dp && newPillX <= maxX + 10 * dp) {
+                                pill.setX(newPillX);
+                            }
+                        }
+                        lastX = event.getX();
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        if (isDragging) {
+                            // 计算当前最接近哪个 Tab
+                            float currentPillCenterX = pill.getX() + pill.getWidth() / 2f;
+                            int bestIdx = selectedTab;
+                            float minDiff = Float.MAX_VALUE;
+                            for (int i = 0; i < tabItems.length; i++) {
+                                float itemCenterX = bar.getX() + tabItems[i].getX() + tabItems[i].getWidth() / 2f;
+                                float diff = Math.abs(currentPillCenterX - itemCenterX);
+                                if (diff < minDiff) {
+                                    minDiff = diff;
+                                    bestIdx = i;
+                                }
+                            }
+                            selectTab(bestIdx);
+                        } else {
+                            // 单击事件委托
+                            float clickX = event.getX();
+                            for (int i = 0; i < tabItems.length; i++) {
+                                float left = bar.getX() + tabItems[i].getX();
+                                float right = left + tabItems[i].getWidth();
+                                if (clickX >= left && clickX <= right) {
+                                    selectTab(i);
+                                    break;
+                                }
+                            }
+                        }
+                        isDragging = false;
+                        return true;
+                }
+                return false;
+            }
+        });
+
         // 滑动指示条（全高分段胶囊，透明浅灰）
         pill = new View(this);
         pillBg = new GradientDrawable();
@@ -718,13 +781,15 @@ public class SettingsActivity extends Activity {
         return scroll;
     }
 
-    /** 半透明白圆角卡片 */
+    /** 全局液态玻璃卡片（双层半透明底色 + 1dp 物理折射高光微光描边 + 24dp 优雅大圆角） */
     private LinearLayout makeCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(CARD_BG);
-        bg.setCornerRadius(20 * dp);
+        bg.setCornerRadius(24 * dp);
+        // 液态玻璃高光描边（深色模式微光，浅色模式乳白晶透）
+        bg.setStroke((int) (1f * dp), darkMode ? 0x2EFFFFFF : 0x4DFFFFFF);
         card.setBackground(bg);
         return card;
     }
