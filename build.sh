@@ -2,13 +2,15 @@
 # PureStart (ModKit Edition) 构建脚本
 # 不使用 Gradle：aapt2 + javac + d8 + zipalign + apksigner
 #
-# v15.0.7 起的硬性规矩（按外部分析报告 P0）：
-#   1. 版本号唯一来源 = AndroidManifest.xml（module.prop / 输出文件名 / BuildVersion.java
-#      全部由此派生，不再五处手改）；
-#   2. 签名密钥不再自动生成：默认使用仓库内 debug.keystore（保证历代签名一致、可覆盖升级），
-#      可用环境变量 PURESTART_KEYSTORE 指定正式密钥；缺失即报错退出（绝不静默换签名）；
+# 硬性规矩（按外部分析报告 P0；P0-2 修订）：
+#   1. 版本号唯一来源 = AndroidManifest.xml（module.prop / 输出文件名全部由此派生；
+#      代码内版本运行时经 PackageManager 读取，不再生成 BuildVersion.java）；
+#   2. 签名密钥只从环境变量读（KEYSTORE_PATH 必填；KEYSTORE_PASS / KEY_ALIAS / KEY_PASS
+#      缺省 android / androiddebugkey / android）；缺失即报错退出，绝不自动生成
+#      ——换签名 = 无法覆盖升级；
 #   3. ANDROID_HOME 必须由环境提供（不再内置作者本机路径）；
-#   4. 构建前先跑 scripts/check_consistency.py（目标清单三处一致 + 版本一致 + 密钥在位）。
+#   4. 构建先跑 scripts/check.py（漂移门禁 6 项：目标清单三处一致 / 版本单一来源 /
+#      API 声明 / authority / UI-Hook 隔离 / 密钥在位）。
 set -e
 cd "$(dirname "$0")"
 
