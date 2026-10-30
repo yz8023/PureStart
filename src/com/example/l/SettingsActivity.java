@@ -75,13 +75,13 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     int STATUS_GREEN;
     int BADGE_RED;
     private int CARD_BG;        // 卡片背景
-    private int FIELD_BG;       // 输入框/按钮底色
+    int FIELD_BG;       // 输入框/按钮底色
     private int PILL_GRAY;      // 灰色胶囊（未安装）
-    private int HINT;           // 弱化文字（未安装应用名）
+    int HINT;           // 弱化文字（未安装应用名）
     int BACKDROP_BASE;  // 背景光斑底色
     int BLOB1, BLOB2, BLOB3; // 三色光斑
     private int PILL_TAB;       // 底栏指示条底色
-    private boolean darkMode;   // 当前解析结果是否深色
+    boolean darkMode;   // 当前解析结果是否深色
     FrameLayout pageContainer;
     FrameLayout barWrap;
     private LinearLayout bar;
@@ -89,9 +89,6 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     private ImageView[] tabIcons;
     private TextView[] tabLabels;
     private TextView scopeBadge;             // "应用"Tab 作用域数量角标（读 APK 内 scope.list）
-    private LinearLayout appsListContainer;  // "应用"页列表容器
-    private android.widget.EditText appsSearch;  // 应用搜索框
-    private TextView appsCountView;          // 标题旁数量
     List<AppEntry> appsData;         // 应用页数据（后台加载）
     private android.content.SharedPreferences hookPrefs;   // 与 Hook 侧共享的开关偏好
     /** 各作用域应用的功能描述（“应用”页卡片展示用；新增 Hook 目标时在此加一行） */
@@ -181,6 +178,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     GlassEngine.BackdropView backdrop;       // 背景层引用（视图本体由 GlassEngine 创建）
     final GlassEngine engine = new GlassEngine(this);   // 磨砂玻璃捕获/绘制引擎（P1-2 拆出）
     final HomePage homePage = new HomePage(this);      // 「首页」页组装（P1-2 拆出）
+    final AppsPage appsPage = new AppsPage(this);      // 「应用」页组装（P1-2 拆出）
     private int selectedTab = 0;
     float dp;
 
@@ -309,7 +307,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
             pageContainer.setPadding(0, getResources().getDimensionPixelSize(sbId), 0, 0);
         }
         pageContainer.addView(homePage.build());
-        pageContainer.addView(makeAppsPage());
+        pageContainer.addView(appsPage.build());
         pageContainer.addView(makeExtensionPage());
         pageContainer.addView(makeSettingsPage());
         for (int i = 1; i < pageContainer.getChildCount(); i++) {
@@ -584,7 +582,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         // 连点风暴期间玻璃零开销：每次点击重置 350ms 定时，停止点击后才补刷一次
         barWrap.removeCallbacks(engine.settleTask);
         barWrap.postDelayed(engine.settleTask, 350);
-        if (idx == 1) loadAppsAsync();   // 每次切到"应用"页都刷新安装状态
+        if (idx == 1) appsPage.loadAppsAsync();   // 每次切到"应用"页都刷新安装状态
 
         // ① 活动胶囊：槽位空间浮点弹簧驱动（模板 valueAnimation，弹跳全部来自弹簧本身）
         slotSpring.target = idx;
@@ -1583,257 +1581,15 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** "应用"页：适配应用列表（scope.list ∩ 本机已装），对标 Fuck for VIP */
-    private View makeAppsPage() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (22 * dp);
-        box.setPadding(pad, (int) (10 * dp), pad, (int) (108 * dp));
-        scroll.addView(box, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-
-        // ① 标题行：适配应用 + 数量
-        LinearLayout titleRow = new LinearLayout(this);
-        titleRow.setOrientation(LinearLayout.HORIZONTAL);
-        titleRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = new TextView(this);
-        title.setText("适配应用");
-        title.setTextSize(30);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(INK);
-        title.setPadding((int) (2 * dp), 0, 0, 0);
-        titleRow.addView(title, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        appsCountView = new TextView(this);
-        appsCountView.setText("…");
-        appsCountView.setTextSize(13);
-        appsCountView.setTextColor(SUB);
-        titleRow.addView(appsCountView);
-        box.addView(titleRow);
-
-        // ② 搜索框
-        appsSearch = new android.widget.EditText(this);
-        appsSearch.setHint("搜索应用");
-        appsSearch.setTextSize(14);
-        appsSearch.setSingleLine(true);
-        appsSearch.setTextColor(INK);
-        appsSearch.setHintTextColor(HINT);
-        appsSearch.setPadding((int) (16 * dp), (int) (12 * dp), (int) (16 * dp), (int) (12 * dp));
-        GradientDrawable searchBg = new GradientDrawable();
-        searchBg.setColor(FIELD_BG);
-        searchBg.setCornerRadius(14 * dp);
-        appsSearch.setBackground(searchBg);
-        LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        searchLp.topMargin = (int) (10 * dp);
-        searchLp.bottomMargin = (int) (12 * dp);
-        box.addView(appsSearch, searchLp);
-        appsSearch.addTextChangedListener(new android.text.TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {
-            }
-
-            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
-            }
-
-            @Override public void afterTextChanged(android.text.Editable s) {
-                renderAppsList();
-            }
-        });
-
-        // ③ 列表容器（后台加载后填充）
-        appsListContainer = new LinearLayout(this);
-        appsListContainer.setOrientation(LinearLayout.VERTICAL);
-        box.addView(appsListContainer, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        TextView loading = new TextView(this);
-        loading.setText("正在读取作用域应用…");
-        loading.setTextSize(13);
-        loading.setTextColor(SUB);
-        loading.setGravity(Gravity.CENTER);
-        loading.setPadding(0, (int) (40 * dp), 0, (int) (40 * dp));
-        appsListContainer.addView(loading);
-
-        loadAppsAsync();
-        return scroll;
-    }
-
-    /** 后台读 scope.list，解析每个包的安装状态/名称/版本 */
-    private void loadAppsAsync() {
-        final PackageManager pm = getPackageManager();
-        new Thread(() -> {
-            List<AppEntry> list = new ArrayList<>();
-            java.util.zip.ZipFile zf = null;
-            try {
-                zf = new java.util.zip.ZipFile(getPackageCodePath());
-                java.util.zip.ZipEntry entry = zf.getEntry("META-INF/xposed/scope.list");
-                if (entry != null) {
-                    java.io.BufferedReader r = new java.io.BufferedReader(
-                            new java.io.InputStreamReader(zf.getInputStream(entry), "UTF-8"));
-                    String line;
-                    while ((line = r.readLine()) != null) {
-                        line = line.trim();
-                        if (line.isEmpty() || line.startsWith("#")) continue;
-                        String label = line;
-                        String version = "未安装";
-                        boolean installed = false;
-                        try {
-                            PackageInfo pi = pm.getPackageInfo(line, 0);
-                            installed = true;
-                            label = pi.applicationInfo.loadLabel(pm).toString();
-                            version = pi.versionName == null ? "—" : pi.versionName;
-                        } catch (Throwable ignored) {
-                        }
-                        list.add(new AppEntry(line, label, version, installed));
-                    }
-                    r.close();
-                }
-            } catch (Throwable t) {
-                // 读不到就按空列表处理
-            } finally {
-                if (zf != null) try { zf.close(); } catch (Throwable ignored) {
-                }
-            }
-            // 已安装在前，名称排序
-            Collections.sort(list, (a, b) -> {
-                if (a.installed != b.installed) return a.installed ? -1 : 1;
-                return a.label.compareToIgnoreCase(b.label);
-            });
-            final List<AppEntry> data = list;
-            runOnUiThread(() -> {
-                appsData = data;
-                if (appsCountView != null) {
-                    int inst = 0;
-                    for (AppEntry e : data) if (e.installed) inst++;
-                    appsCountView.setText(data.isEmpty() ? "0 个" : inst + " / " + data.size() + " 个");
-                }
-                renderAppsList();
-                updateScopeBadge();   // 数据就绪后刷新底栏角标
-            });
-        }, "apps-page").start();
-    }
-
-    /** 按搜索词过滤渲染列表 */
-    void renderAppsList() {
-        if (appsListContainer == null || appsData == null) return;
-        appsListContainer.removeAllViews();
-        String q = appsSearch.getText().toString().trim().toLowerCase();
-        int shown = 0;
-        for (AppEntry e : appsData) {
-            if (!q.isEmpty()
-                    && !e.label.toLowerCase().contains(q)
-                    && !e.pkg.toLowerCase().contains(q)) {
-                continue;
-            }
-            // 卡片间距：与首页一致（底部 12dp）
-            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT);
-            cardLp.bottomMargin = (int) (12 * dp);
-            appsListContainer.addView(appCard(e), cardLp);
-            shown++;
-        }
-        if (shown == 0) {
-            TextView empty = new TextView(this);
-            empty.setText(appsData.isEmpty()
-                    ? "scope.list 暂无作用域应用\n往 xposed/scope.list 加一行包名并重新构建"
-                    : "没有匹配的应用");
-            empty.setTextSize(13);
-            empty.setTextColor(SUB);
-            empty.setGravity(Gravity.CENTER);
-            empty.setLineSpacing(4 * dp, 1f);
-            empty.setPadding(0, (int) (48 * dp), 0, (int) (48 * dp));
-            appsListContainer.addView(empty);
-        }
-    }
-
-    /** 单张应用卡：图标 + 名称/包名/版本/功能 + 状态胶囊（对标 FFV 应用页） */
-    private LinearLayout appCard(AppEntry e) {
-        LinearLayout card = makeCard();
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding((int) (14 * dp), (int) (14 * dp),
-                (int) (14 * dp), (int) (14 * dp));
-
-        ImageView icon = new ImageView(this);
-        if (e.installed) {
-            try {
-                icon.setImageDrawable(getPackageManager().getApplicationIcon(e.pkg));
-            } catch (Throwable t) {
-                icon.setImageResource(android.R.drawable.sym_def_app_icon);
-            }
-        } else {
-            // 未安装：默认安卓机器人图标（与 FFV 一致）
-            icon.setImageResource(android.R.drawable.sym_def_app_icon);
-        }
-        card.addView(icon, new LinearLayout.LayoutParams(
-                (int) (48 * dp), (int) (48 * dp)));
-
-        LinearLayout mid = new LinearLayout(this);
-        mid.setOrientation(LinearLayout.VERTICAL);
-        mid.setPadding((int) (12 * dp), 0, 0, 0);
-        TextView name = new TextView(this);
-        name.setText(e.label);
-        name.setTextSize(15);
-        name.setTypeface(Typeface.DEFAULT_BOLD);
-        name.setTextColor(e.installed ? INK : HINT);
-        mid.addView(name);
-        TextView pkg = new TextView(this);
-        pkg.setText(e.pkg);
-        pkg.setTextSize(11.5f);
-        pkg.setTextColor(SUB);
-        pkg.setPadding(0, (int) (2 * dp), 0, 0);
-        mid.addView(pkg);
-        if (e.installed) {
-            TextView ver = new TextView(this);
-            ver.setText("v" + e.version);
-            ver.setTextSize(11.5f);
-            ver.setTextColor(SUB);
-            ver.setPadding(0, (int) (2 * dp), 0, 0);
-            mid.addView(ver);
-        }
-        TextView desc = new TextView(this);
-        desc.setText(e.desc);
-        desc.setTextSize(12);
-        desc.setTextColor(SUB);
-        desc.setPadding(0, (int) (4 * dp), 0, 0);
-        mid.addView(desc);
-        card.addView(mid, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        // 右侧勾选框：仅已安装应用（勾选=启用该应用 Hook；写入偏好供 Hook 侧 getRemotePreferences 读取）
-        if (e.installed) {
-            android.widget.CheckBox cb = new android.widget.CheckBox(this);
-            cb.setChecked(isHookEnabled(e.pkg));
-            cb.setButtonTintList(ColorStateList.valueOf(ACCENT));
-            cb.setOnCheckedChangeListener((v, checked) -> {
-                setHookEnabled(e.pkg, checked);
-                updateScopeBadge();   // 角标跟随勾选实时变化
-            });
-            card.addView(cb, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT));
-        }
-        // 点击卡片进入细分选项液态玻璃弹窗
-        card.setClickable(true);
-        card.setFocusable(true);
-        card.setOnClickListener(v -> {
-            AppDetailDialog.show(this, e.pkg, e.label, e.desc, darkMode, () -> {
-                // 子项开关更新回调
-                renderAppsList();
-            });
-        });
-        return card;
-    }
-
     /** 合并式刷新入口：无论谁调多频，实际重捕最多 ≈30fps 且不同帧堆积（快速连点卡顿的根治） */
     /** 玻璃重捕入口（P1-2 起由 GlassEngine 实现，保留原调用点不变） */
     private void requestGlassRefresh() {
         engine.requestRefresh();
+    }
+
+    /** 「应用」列表重渲染（P1-2 起由 AppsPage 实现；首页盾牌与弹窗回调经此薄委托） */
+    void renderAppsList() {
+        appsPage.renderList();
     }
 
     /** "应用"页单条数据 */
