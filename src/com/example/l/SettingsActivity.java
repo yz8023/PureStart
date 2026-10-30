@@ -66,14 +66,14 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
     // ===== 主题色（applyTheme() 按“外观”选择赋值：跟随系统/浅色/深色） =====
     private int PAGE_BG;
-    private int ACCENT;
-    private int INK;
-    private int SUB;
+    int ACCENT;
+    int INK;
+    int SUB;
     private int IDLE_TINT;
     int BAR_BG;
     private int RIPPLE;
-    private int STATUS_GREEN;
-    private int BADGE_RED;
+    int STATUS_GREEN;
+    int BADGE_RED;
     private int CARD_BG;        // 卡片背景
     private int FIELD_BG;       // 输入框/按钮底色
     private int PILL_GRAY;      // 灰色胶囊（未安装）
@@ -92,7 +92,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     private LinearLayout appsListContainer;  // "应用"页列表容器
     private android.widget.EditText appsSearch;  // 应用搜索框
     private TextView appsCountView;          // 标题旁数量
-    private List<AppEntry> appsData;         // 应用页数据（后台加载）
+    List<AppEntry> appsData;         // 应用页数据（后台加载）
     private android.content.SharedPreferences hookPrefs;   // 与 Hook 侧共享的开关偏好
     /** 各作用域应用的功能描述（“应用”页卡片展示用；新增 Hook 目标时在此加一行） */
     private static final java.util.HashMap<String, String> APP_DESC = new java.util.HashMap<>();
@@ -180,6 +180,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
             Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);   // 卡片背景裁剪画笔（vibrancy 随动）
     GlassEngine.BackdropView backdrop;       // 背景层引用（视图本体由 GlassEngine 创建）
     final GlassEngine engine = new GlassEngine(this);   // 磨砂玻璃捕获/绘制引擎（P1-2 拆出）
+    final HomePage homePage = new HomePage(this);      // 「首页」页组装（P1-2 拆出）
     private int selectedTab = 0;
     float dp;
 
@@ -307,7 +308,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         if (sbId > 0) {
             pageContainer.setPadding(0, getResources().getDimensionPixelSize(sbId), 0, 0);
         }
-        pageContainer.addView(makeHomePage());
+        pageContainer.addView(homePage.build());
         pageContainer.addView(makeAppsPage());
         pageContainer.addView(makeExtensionPage());
         pageContainer.addView(makeSettingsPage());
@@ -712,377 +713,15 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** 首页：状态卡 + 双统计卡 + 信息卡列表 + 反馈卡（对照参考模块版式） */
-    private View makeHomePage() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (22 * dp);
-        box.setPadding(pad, (int) (10 * dp), pad, (int) (108 * dp));
-        scroll.addView(box, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-
-        // ① 大标题
-        TextView title = new TextView(this);
-        title.setText(getApplicationInfo().loadLabel(getPackageManager()));
-        title.setTextSize(34);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(INK);
-        title.setPadding((int) (2 * dp), 0, 0, (int) (20 * dp));
-        box.addView(title);
-
-        // ② 状态卡：图标 + 激活状态 + 版本号 + Beta 徽章
-        LinearLayout statusCard = makeCard();
-        statusCard.setOrientation(LinearLayout.HORIZONTAL);
-        statusCard.setGravity(Gravity.CENTER_VERTICAL);
-        statusCard.setPadding((int) (20 * dp), (int) (18 * dp),
-                (int) (14 * dp), (int) (18 * dp));
-
-        final HoldShieldView shield = new HoldShieldView(this);
-        boolean allOn = true;
-        if (appsData != null && !appsData.isEmpty()) {
-            for (AppEntry entry : appsData) {
-                if (entry.installed && !isHookEnabled(entry.pkg)) {
-                    allOn = false;
-                    break;
-                }
-            }
-        }
-        shield.setActive(allOn);
-        shield.setListener(new HoldShieldView.Listener() {
-            @Override
-            public void onHoldComplete() {
-                boolean targetState = !shield.isActive();
-                shield.setActive(targetState);
-                if (appsData != null) {
-                    for (AppEntry e : appsData) {
-                        setHookEnabled(e.pkg, targetState);
-                    }
-                }
-                updateScopeBadge();
-                renderAppsList();
-                android.widget.Toast.makeText(SettingsActivity.this,
-                        targetState ? "已一键开启所有应用广告拦截与优化" : "已重置并关闭所有应用适配拦截",
-                        android.widget.Toast.LENGTH_SHORT).show();
-            }
-            @Override
-            public void onTapHint() {
-                android.widget.Toast.makeText(SettingsActivity.this,
-                        "长按盾牌图标 1 秒，一键全局开关全部应用净化",
-                        android.widget.Toast.LENGTH_SHORT).show();
-            }
-        });
-        statusCard.addView(shield, new LinearLayout.LayoutParams(
-                (int) (48 * dp), (int) (48 * dp)));
-
-        LinearLayout mid = new LinearLayout(this);
-        mid.setOrientation(LinearLayout.VERTICAL);
-        mid.setPadding((int) (14 * dp), 0, 0, 0);
-        // 真实激活检测：LSPosed 激活时会把 XposedBridge 注入 boot classpath（任何进程可查）
-        boolean fwActive = isFrameworkActive();
-        int fwVer = fwActive ? frameworkVersion() : -1;
-        TextView status = new TextView(this);
-        status.setText(fwActive ? "已激活" : "未激活");
-        status.setTextSize(17);
-        status.setTypeface(Typeface.DEFAULT_BOLD);
-        status.setTextColor(fwActive ? STATUS_GREEN : BADGE_RED);
-        mid.addView(status);
-        TextView ver = new TextView(this);
-        ver.setText(fwActive
-                ? appVersion() + (fwVer > 0 ? " · 框架 v" + fwVer : "")
-                : appVersion() + " · 未检测到 LSPosed / Xposed 框架");
-        ver.setTextSize(12.5f);
-        ver.setTextColor(SUB);
-        ver.setPadding(0, (int) (3 * dp), 0, 0);
-        mid.addView(ver);
-        statusCard.addView(mid, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        TextView chip = new TextView(this);
-        chip.setText("Beta");
-        chip.setTextSize(11);
-        chip.setTypeface(Typeface.DEFAULT_BOLD);
-        chip.setTextColor(0xFFFFFFFF);
-        chip.setGravity(Gravity.CENTER);
-        chip.setPadding((int) (12 * dp), (int) (5 * dp), (int) (12 * dp), (int) (5 * dp));
-        GradientDrawable chipBg = new GradientDrawable();
-        chipBg.setColor(ACCENT);
-        chipBg.setCornerRadius(99 * dp);
-        chip.setBackground(chipBg);
-        statusCard.addView(chip, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        addCard(box, statusCard);
-
-        // ③ 双统计卡
-        LinearLayout statRow = new LinearLayout(this);
-        statRow.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams half1 = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        // 适配应用卡：scopeAppCount() 要读 APK zip + 逐包 getPackageInfo（慢），
-        // 与“已安装软件”卡同策略：先占位，后台线程统计后回填（v1.0.11 接真）
-        LinearLayout scopeCard = makeCard();
-        scopeCard.setPadding((int) (20 * dp), (int) (16 * dp),
-                (int) (20 * dp), (int) (16 * dp));
-        TextView scopeLabel = new TextView(this);
-        scopeLabel.setText("适配应用");
-        scopeLabel.setTextSize(13);
-        scopeLabel.setTextColor(SUB);
-        scopeCard.addView(scopeLabel);
-        final TextView scopeVal = new TextView(this);
-        scopeVal.setText("…");
-        scopeVal.setTextSize(24);
-        scopeVal.setTypeface(Typeface.DEFAULT_BOLD);
-        scopeVal.setTextColor(INK);
-        scopeVal.setPadding(0, (int) (4 * dp), 0, 0);
-        scopeCard.addView(scopeVal);
-        statRow.addView(scopeCard, half1);
-        new Thread(() -> {
-            final int n = scopeAppCount();
-            runOnUiThread(() -> scopeVal.setText(String.valueOf(n)));
-        }, "scope-count").start();
-        LinearLayout.LayoutParams half2 = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        half2.leftMargin = (int) (12 * dp);
-        // 目标应用卡：逐包查 17 个目标（<queries> 已声明可见），后台线程统计后回填
-        LinearLayout appsCard = makeCard();
-        appsCard.setPadding((int) (20 * dp), (int) (16 * dp),
-                (int) (20 * dp), (int) (16 * dp));
-        TextView appsLabel = new TextView(this);
-        appsLabel.setText("目标应用已装");
-        appsLabel.setTextSize(13);
-        appsLabel.setTextColor(SUB);
-        appsCard.addView(appsLabel);
-        final TextView appsVal = new TextView(this);
-        appsVal.setText("…");
-        appsVal.setTextSize(24);
-        appsVal.setTypeface(Typeface.DEFAULT_BOLD);
-        appsVal.setTextColor(INK);
-        appsVal.setPadding(0, (int) (4 * dp), 0, 0);
-        appsCard.addView(appsVal);
-        statRow.addView(appsCard, half2);
-        new Thread(() -> {
-            final int n = installedAppCount();
-            runOnUiThread(() -> appsVal.setText(String.valueOf(n)));
-        }, "app-count").start();
-        LinearLayout.LayoutParams statLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        statLp.bottomMargin = (int) (12 * dp);
-        box.addView(statRow, statLp);
-
-        // ④ 信息卡列表（全部为运行时真实设备数据）
-        String[][] infos = {
-                {"构建时间", BuildInfo.BUILD_TIME},
-                {"安卓版本", Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ", REL)"},
-                {"设备型号", Build.MODEL + " (" + Build.PRODUCT + ")"},
-                {"系统架构", Build.SUPPORTED_ABIS[0]},
-                {"框架 & API", "libxposed API 102（Modern Xposed）"},
-        };
-        for (String[] row : infos) {
-            LinearLayout card = makeCard();
-            card.setPadding((int) (20 * dp), (int) (16 * dp),
-                    (int) (20 * dp), (int) (16 * dp));
-            TextView l = new TextView(this);
-            l.setText(row[0]);
-            l.setTextSize(13);
-            l.setTextColor(SUB);
-            card.addView(l);
-            TextView v = new TextView(this);
-            v.setText(row[1]);
-            v.setTextSize(15);
-            v.setTypeface(Typeface.DEFAULT_BOLD);
-            v.setTextColor(INK);
-            v.setPadding(0, (int) (3 * dp), 0, 0);
-            card.addView(v);
-            addCard(box, card);
-        }
-
-        // ⑤ 反馈卡：文字 + 两个圆形图标按钮
-        LinearLayout feedCard = makeCard();
-        feedCard.setOrientation(LinearLayout.HORIZONTAL);
-        feedCard.setGravity(Gravity.CENTER_VERTICAL);
-        feedCard.setPadding((int) (20 * dp), (int) (18 * dp),
-                (int) (14 * dp), (int) (18 * dp));
-        TextView feed = new TextView(this);
-        feed.setText("在 GitHub 反馈");
-        feed.setTextSize(15);
-        feed.setTypeface(Typeface.DEFAULT_BOLD);
-        feed.setTextColor(INK);
-        feedCard.addView(feed, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        feedCard.addView(roundButton(R.drawable.ic_action_code), roundLp(0));
-        feedCard.addView(roundButton(R.drawable.ic_action_chat), roundLp((int) (12 * dp)));
-        addCard(box, feedCard);
-
-        return scroll;
-    }
-
-    /** Hook 自检卡：读取目标应用进程经 Provider 回传的安装结果（未上报/已装/失败明细） */
-    private LinearLayout selfCheckCard() {
-        LinearLayout card = makeCard();
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding((int) (16 * dp), (int) (14 * dp), (int) (16 * dp), (int) (8 * dp));
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = new TextView(this);
-        title.setText("目标应用安装状态");
-        title.setTextSize(14);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(INK);
-        head.addView(title, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        final LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        TextView refresh = new TextView(this);
-        refresh.setText("刷新");
-        refresh.setTextSize(13);
-        refresh.setTextColor(ACCENT);
-        refresh.setPadding((int) (10 * dp), (int) (4 * dp), (int) (10 * dp), (int) (4 * dp));
-        refresh.setOnClickListener(v -> renderSelfCheck(list));
-        head.addView(refresh);
-        card.addView(head);
-        card.addView(list);
-        renderSelfCheck(list);
-        return card;
-    }
-
-    private void renderSelfCheck(LinearLayout list) {
-        list.removeAllViews();
-        android.content.SharedPreferences sp =
-                getSharedPreferences(Prefs.FILE_SELFCHECK, MODE_PRIVATE);
-        java.text.DateFormat tf = new java.text.SimpleDateFormat("MM-dd HH:mm",
-                java.util.Locale.getDefault());
-        for (String[] t : Targets.LIST) {
-            String row = sp.getString(t[0], null);
-            TextView line = new TextView(this);
-            line.setTextSize(12);
-            line.setPadding(0, (int) (4 * dp), 0, (int) (4 * dp));
-            if (row == null) {
-                line.setText(t[1].split(" · ")[0] + "：未上报（打开一次目标应用后自动回传）");
-                line.setTextColor(SUB);
-            } else {
-                String[] p = row.split("\\|", -1);   // ok|miss|fails|version|at
-                int ok = 0, miss = 0;
-                try { ok = Integer.parseInt(p[0]); } catch (Throwable ignored) {}
-                try { miss = Integer.parseInt(p[1]); } catch (Throwable ignored) {}
-                String fails = p.length > 2 ? p[2] : "";
-                String ver = p.length > 3 ? p[3] : "?";
-                long at = 0L;
-                try { at = Long.parseLong(p.length > 4 ? p[4] : "0"); } catch (Throwable ignored) {}
-                StringBuilder sb = new StringBuilder();
-                sb.append(t[1].split(" · ")[0]).append("：已装 ").append(ok).append(" 项");
-                if (miss > 0) sb.append(" · 缺 ").append(miss);
-                if (fails != null && !fails.isEmpty()) {
-                    sb.append(" · 失败: ").append(fails, 0, Math.min(fails.length(), 80));
-                    line.setTextColor(BADGE_RED);
-                } else {
-                    line.setTextColor(ok > 0 ? STATUS_GREEN : SUB);
-                }
-                sb.append("\n").append("v").append(ver).append(" · ")
-                        .append(at > 0 ? tf.format(new java.util.Date(at)) : "—");
-                line.setText(sb.toString());
-            }
-            list.addView(line, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT));
-        }
-    }
-
-    /** 桌面图标开关：真实切换 activity-alias（禁用即从桌面隐藏，启用即恢复） */
-    private LinearLayout desktopIconRow() {
-        LinearLayout card = makeCard();
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        int vpad = (int) (16 * dp);
-        card.setPadding((int) (14 * dp), vpad, (int) (14 * dp), vpad);
-
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(R.drawable.ic_set_home);
-        icon.setColorFilter(ACCENT);
-        card.addView(icon, new LinearLayout.LayoutParams((int) (26 * dp), (int) (26 * dp)));
-
-        LinearLayout mid = new LinearLayout(this);
-        mid.setOrientation(LinearLayout.VERTICAL);
-        mid.setPadding((int) (12 * dp), 0, 0, 0);
-        TextView t1 = new TextView(this);
-        t1.setText("在桌面显示图标");
-        t1.setTextSize(15);
-        t1.setTypeface(Typeface.DEFAULT_BOLD);
-        t1.setTextColor(INK);
-        mid.addView(t1);
-        TextView t2 = new TextView(this);
-        t2.setText("隐藏后可从 LSPosed 模块列表重新打开本页；若图标未消失，请检查 LSPosed 是否开启了强制显示桌面图标");
-        t2.setTextSize(12);
-        t2.setTextColor(SUB);
-        t2.setPadding(0, (int) (2 * dp), 0, 0);
-        mid.addView(t2);
-        card.addView(mid, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        final android.widget.Switch sw = new android.widget.Switch(this);
-        sw.setChecked(isLauncherAliasEnabled());
-        sw.setOnCheckedChangeListener((v, checked) -> {
-            if (!checked) {
-                // 隐藏前必须确认：隐藏后桌面与 LSPosed「打开」都会失效，给足恢复方式
-                sw.setChecked(true);   // 先回弹，确认后才真正隐藏
-                new android.app.AlertDialog.Builder(this)
-                        .setTitle("隐藏桌面图标")
-                        .setMessage("隐藏后将无法从桌面打开，LSPosed 的「打开」也可能失效。\n\n"
-                                + "恢复方式（任选其一）：\n"
-                                + "① adb shell am broadcast -a com.example.l.action.SHOW_ICON\n"
-                                + "② adb shell pm enable com.example.l/.IconAlias\n"
-                                + "③ 系统设置 → 应用 → PureStart → 卸载后重装（设置会丢失）")
-                        .setPositiveButton("仍要隐藏", (d, w) -> setDesktopIcon(sw, false))
-                        .setNegativeButton("取消", null)
-                        .show();
-            } else {
-                setDesktopIcon(sw, true);
-            }
-        });
-        card.addView(sw);
-        return card;
-    }
-
-    private void setDesktopIcon(android.widget.Switch sw, boolean show) {
-        try {
-            getPackageManager().setComponentEnabledSetting(
-                    new android.content.ComponentName(this, "com.example.l.IconAlias"),
-                    show ? android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                            : android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                    android.content.pm.PackageManager.DONT_KILL_APP);
-            Prefs.setDesktopIconPref(this, show);
-            sw.setChecked(show);
-        } catch (Throwable t) {
-            android.widget.Toast.makeText(this, "切换失败：" + t,
-                    android.widget.Toast.LENGTH_SHORT).show();
-            sw.setChecked(isLauncherAliasEnabled());
-        }
-    }
-
-    /** 桌面图标的真实状态以 PackageManager 为准（LSPosed 强制显示等外部改动也能正确反映） */
-    private boolean isLauncherAliasEnabled() {
-        try {
-            return getPackageManager().getComponentEnabledSetting(
-                    new android.content.ComponentName(this, "com.example.l.IconAlias"))
-                    != android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
-        } catch (Throwable t) {
-            return true;
-        }
-    }
-
     /** 全局磨砂玻璃卡片：裁剪窗口内背景位图模糊 + 染色层 + 棱光 + 高光描边
      *  （GlassCardView，磨砂细则滑杆实时生效；详见类注释） */
-    private LinearLayout makeCard() {
+    LinearLayout makeCard() {
         GlassCardView card = new GlassCardView(this, this);
         card.setOrientation(LinearLayout.VERTICAL);
         return card;
     }
 
-    private void addCard(LinearLayout box, LinearLayout card) {
+    void addCard(LinearLayout box, LinearLayout card) {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -1109,7 +748,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** 磨砂圆形图标按钮：主题 surface 半透明底 + 1dp 高光描边（随主题与细则实时变化） */
-    private ImageView roundButton(int iconRes) {
+    ImageView roundButton(int iconRes) {
         ImageView b = new ImageView(this);
         b.setImageResource(iconRes);
         b.setColorFilter(INK);
@@ -1123,7 +762,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         return b;
     }
 
-    private LinearLayout.LayoutParams roundLp(int leftMargin) {
+    LinearLayout.LayoutParams roundLp(int leftMargin) {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 (int) (44 * dp), (int) (44 * dp));
         lp.leftMargin = leftMargin;
@@ -1131,7 +770,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** 检测 Xposed / LSPosed 框架是否可用（框架激活时会将 XposedBridge 注入 boot classpath） */
-    private static boolean isFrameworkActive() {
+    static boolean isFrameworkActive() {
         try {
             Class.forName("de.robv.android.xposed.XposedBridge");
             return true;
@@ -1141,7 +780,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** Xposed 框架版本（getXposedVersion()），取不到返回 -1 */
-    private static int frameworkVersion() {
+    static int frameworkVersion() {
         try {
             Class<?> c = Class.forName("de.robv.android.xposed.XposedBridge");
             return (Integer) c.getMethod("getXposedVersion").invoke(null);
@@ -1158,12 +797,12 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         return hookPrefs;
     }
 
-    private boolean isHookEnabled(String pkg) {
+    boolean isHookEnabled(String pkg) {
         return Prefs.hookEnabled(this, pkg);   // P0-1：默认关
     }
 
     /** 刷新底栏“应用”角标：= 已安装且勾选启用的作用域应用数；为 0 或设置页关掉角标则隐藏 */
-    private void updateScopeBadge() {
+    void updateScopeBadge() {
         if (scopeBadge == null) return;
         if (!Prefs.appBadgeEnabled(this)) {   // 设置页总开关：不喜欢看就不显示
             scopeBadge.setVisibility(View.GONE);
@@ -1183,7 +822,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         }
     }
 
-        private void setHookEnabled(String pkg, boolean enabled) {
+    void setHookEnabled(String pkg, boolean enabled) {
         // 只写模块私有偏好；Hook 侧经 HookStateProvider 读取（不受 ROM 权限限制）
         Prefs.setHookEnabled(this, pkg, enabled);
     }
@@ -1220,11 +859,11 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
         // ===== 分组：桌面图标 =====
         box.addView(sectionHeader("桌面图标"));
-        addCard(box, desktopIconRow());
+        addCard(box, homePage.desktopIconRow());
 
         // ===== 分组：Hook 自检 =====
         box.addView(sectionHeader("Hook 自检"));
-        addCard(box, selfCheckCard());
+        addCard(box, homePage.selfCheckCard());
 
         // ===== 分组：更新 =====
         box.addView(sectionHeader("更新"));
@@ -1657,7 +1296,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
     /** 作用域应用数：读 APK 内 META-INF/xposed/scope.list，逐行统计（空行与 # 注释忽略）
      *  ⚠ LSPosed 管理器里动态勾选的存在其私有数据库，App 进程读不到；这里是模块声明的静态作用域 */
-    private int scopeAppCount() {
+    int scopeAppCount() {
         java.util.zip.ZipFile zf = null;
         try {
             zf = new java.util.zip.ZipFile(getPackageCodePath());
@@ -1688,7 +1327,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** 目标应用已装数量（仅查 17 个目标包：配合 Manifest <queries>，不再需要 QUERY_ALL_PACKAGES） */
-    private int installedAppCount() {
+    int installedAppCount() {
         int n = 0;
         for (String[] t : Targets.LIST) {
             try {
@@ -1699,7 +1338,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         return n;
     }
 
-    private String appVersion() {
+    String appVersion() {
         try {
             PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
             return pi.versionName + " (" + pi.versionCode + ")";
@@ -2079,7 +1718,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** 按搜索词过滤渲染列表 */
-    private void renderAppsList() {
+    void renderAppsList() {
         if (appsListContainer == null || appsData == null) return;
         appsListContainer.removeAllViews();
         String q = appsSearch.getText().toString().trim().toLowerCase();
@@ -2198,7 +1837,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** "应用"页单条数据 */
-    private static class AppEntry {
+    static class AppEntry {
         final String pkg;
         final String label;
         final String version;
