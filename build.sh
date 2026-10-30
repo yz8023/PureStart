@@ -58,7 +58,7 @@ $ZIPALIGN -f -p 4 $OUT/unsigned.apk $OUT/aligned.apk
 if [ ! -f debug.keystore ]; then
   keytool -genkeypair -keystore debug.keystore -storepass android -keypass android -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
 fi
-$APKSIGNER sign --ks debug.keystore --ks-pass pass:android --key-pass pass:android --out $OUT/purestart-modkit-v15.0.5.apk $OUT/aligned.apk
+$APKSIGNER sign --ks debug.keystore --ks-pass pass:android --key-pass pass:android --out $OUT/purestart-modkit-v15.0.6.apk $OUT/aligned.apk
 
-echo "DONE -> $OUT/purestart-modkit-v15.0.5.apk"
-cp -f $OUT/purestart-modkit-v15.0.5.apk . 2>/dev/null || true
+echo "DONE -> $OUT/purestart-modkit-v15.0.6.apk"
+cp -f $OUT/purestart-modkit-v15.0.6.apk . 2>/dev/null || true

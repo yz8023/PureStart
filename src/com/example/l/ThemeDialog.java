@@ -47,7 +47,7 @@ public final class ThemeDialog {
         card.setBackground(LiquidGlass.glassCard(context, isDark, 28));
 
         TextView titleView = new TextView(context);
-        titleView.setText("液态玻璃外观设置");
+        titleView.setText("磨砂玻璃外观设置");
         titleView.setTextSize(20);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
         titleView.setTextColor(isDark ? 0xFFF4F4F5 : 0xFF18181B);
@@ -105,6 +105,7 @@ public final class ThemeDialog {
         dialog.setContentView(root);
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            LiquidGlass.applyFrostedWindow(dialog.getWindow(), density);
             dialog.getWindow().setLayout((int) (320 * density), ViewGroup.LayoutParams.WRAP_CONTENT);
         }
         dialog.show();

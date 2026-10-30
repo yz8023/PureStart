@@ -950,8 +950,70 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         return scroll;
     }
 
-    /** 全局液态玻璃卡片：采样身后模糊背景 + 模板染色公式 + 折射棱光 + 高光描边
-     *  （GlassCardView，玻璃细则滑杆实时生效；详见类注释） */
+    /** 桌面图标开关：真实切换 activity-alias（禁用即从桌面隐藏，启用即恢复） */
+    private LinearLayout desktopIconRow() {
+        LinearLayout card = makeCard();
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        int vpad = (int) (16 * dp);
+        card.setPadding((int) (14 * dp), vpad, (int) (14 * dp), vpad);
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_set_home);
+        icon.setColorFilter(ACCENT);
+        card.addView(icon, new LinearLayout.LayoutParams((int) (26 * dp), (int) (26 * dp)));
+
+        LinearLayout mid = new LinearLayout(this);
+        mid.setOrientation(LinearLayout.VERTICAL);
+        mid.setPadding((int) (12 * dp), 0, 0, 0);
+        TextView t1 = new TextView(this);
+        t1.setText("在桌面显示图标");
+        t1.setTextSize(15);
+        t1.setTypeface(Typeface.DEFAULT_BOLD);
+        t1.setTextColor(INK);
+        mid.addView(t1);
+        TextView t2 = new TextView(this);
+        t2.setText("隐藏后可从 LSPosed 模块列表重新打开本页；若图标未消失，请检查 LSPosed 是否开启了强制显示桌面图标");
+        t2.setTextSize(12);
+        t2.setTextColor(SUB);
+        t2.setPadding(0, (int) (2 * dp), 0, 0);
+        mid.addView(t2);
+        card.addView(mid, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        final android.widget.Switch sw = new android.widget.Switch(this);
+        sw.setChecked(isLauncherAliasEnabled());
+        sw.setOnCheckedChangeListener((v, checked) -> {
+            try {
+                getPackageManager().setComponentEnabledSetting(
+                        new android.content.ComponentName(this, "com.example.l.IconAlias"),
+                        checked ? android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                                : android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        android.content.pm.PackageManager.DONT_KILL_APP);
+                hookPrefs().edit().putBoolean("set_desktop_icon", checked).apply();
+            } catch (Throwable t) {
+                android.widget.Toast.makeText(this, "切换失败：" + t,
+                        android.widget.Toast.LENGTH_SHORT).show();
+                sw.setChecked(isLauncherAliasEnabled());
+            }
+        });
+        card.addView(sw);
+        return card;
+    }
+
+    /** 桌面图标的真实状态以 PackageManager 为准（LSPosed 强制显示等外部改动也能正确反映） */
+    private boolean isLauncherAliasEnabled() {
+        try {
+            return getPackageManager().getComponentEnabledSetting(
+                    new android.content.ComponentName(this, "com.example.l.IconAlias"))
+                    != android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /** 全局磨砂玻璃卡片：采样身后模糊背景 + 染色层 + 棱光 + 高光描边
+     *  （GlassCardView，磨砂细则滑杆实时生效；详见类注释） */
     private LinearLayout makeCard() {
         GlassCardView card = new GlassCardView(this, this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -984,14 +1046,17 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         return card;
     }
 
+    /** 磨砂圆形图标按钮：主题 surface 半透明底 + 1dp 高光描边（随主题与细则实时变化） */
     private ImageView roundButton(int iconRes) {
         ImageView b = new ImageView(this);
         b.setImageResource(iconRes);
         b.setColorFilter(INK);
         b.setPadding((int) (11 * dp), (int) (11 * dp), (int) (11 * dp), (int) (11 * dp));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(FIELD_BG);
+        int alpha = Math.round(clamp(0.10f + glassOpacity() * 0.55f, 0f, 1f) * 255f);
+        bg.setColor((alpha << 24) | (barSurfaceColor & 0xFFFFFF));
         bg.setCornerRadius(22 * dp);
+        bg.setStroke((int) (1f * dp), cardStrokeColor());
         b.setBackground(new RippleDrawable(ColorStateList.valueOf(RIPPLE), bg, bg));
         return b;
     }
@@ -1087,15 +1152,14 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         // ===== 分组：个性化 =====
         box.addView(sectionHeader("个性化"));
         addCard(box, appearanceRow());
-        addCard(box, setRow(R.drawable.ic_set_drop, "液态模糊", "为模块界面增加液态玻璃效果", "set_liquid_blur"));
+        addCard(box, setRow(R.drawable.ic_set_drop, "磨砂模糊", "为模块界面增加磨砂玻璃（View 近似）效果", "set_liquid_blur"));
         addCard(box, glassSectionCard());
         addCard(box, languageRow());
         addCard(box, setRow(R.drawable.ic_set_bell, "底栏应用角标", "在底栏“应用”按钮上显示数量角标", "set_app_badge"));
 
         // ===== 分组：桌面图标 =====
         box.addView(sectionHeader("桌面图标"));
-        addCard(box, setRow(R.drawable.ic_set_home, "在桌面显示图标",
-                "请务必在 LSPosed 中关闭\"强制显示桌面图标\"功能", "set_desktop_icon"));
+        addCard(box, desktopIconRow());
 
         // ===== 分组：更新 =====
         box.addView(sectionHeader("更新"));
@@ -1225,6 +1289,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         if (w != null) {
             w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
             w.setLayout((int) (320 * dp), android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            LiquidGlass.applyFrostedWindow(w, dp);
         }
     }
 
@@ -1246,13 +1311,13 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         hMid.setOrientation(LinearLayout.VERTICAL);
         hMid.setPadding((int) (12 * dp), 0, 0, 0);
         TextView hTitle = new TextView(this);
-        hTitle.setText("玻璃细则");
+        hTitle.setText("磨砂玻璃（View 近似）");
         hTitle.setTextSize(15);
         hTitle.setTypeface(Typeface.DEFAULT_BOLD);
         hTitle.setTextColor(INK);
         hMid.addView(hTitle);
         TextView hSub = new TextView(this);
-        hSub.setText("实时预览 · 对标 ui 模板 AppChrome 参数");
+        hSub.setText("参数取值借鉴 ui 模板 · 拖动实时预览");
         hSub.setTextSize(12);
         hSub.setTextColor(SUB);
         hSub.setPadding(0, (int) (2 * dp), 0, 0);
@@ -1290,7 +1355,11 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         glassSwitchRow(glassSectionContent, "色差折射", "glass_chromatic",
                 "在液态透镜边缘显示更明显的色散");
         TextView note = new TextView(this);
-        note.setText("参数与 ui 项目设置页一一对应（同名同范围同默认值）。View 近似：折射高度→棱光厚度、折射幅度→采样层放大、色差→棱光 RGB 色散；无 Compose 透镜形变。拖动即刻在底栏与全部卡片上实时预览。");
+        note.setText("【与模板真玻璃的差异】\n"
+                + "· 无 backdrop 实时采样：View 无法录制任意图层，卡片=背景位图按窗口坐标裁剪，底栏=定时截图降采样；\n"
+                + "· 无 lens 折射：棱光厚度/采样层放大为近似，滚动经过玻璃下方的内容不会被折射；\n"
+                + "· 弹窗在 Android 12+ 用系统窗口背景模糊（真磨砂），12 以下退化为半透明蒙层。\n"
+                + "【验收】滑动不掉帧 · 深浅色均可读 · 可点区域不受影响。");
         note.setTextSize(11);
         note.setTextColor(SUB);
         note.setLineSpacing(3 * dp, 1f);
@@ -1666,7 +1735,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         about.setPadding((int) (18 * dp), (int) (16 * dp), (int) (18 * dp), (int) (16 * dp));
         String[] infos = {
                 "开源地址", "github.com/yz8023/PureStart",
-                "模块版本", "v15.0.5 (ModKit Edition)",
+                "模块版本", "v15.0.6 (ModKit Edition)",
                 "Hook 接口", "libxposed API 102（Modern Xposed）",
                 "构建时间", BuildInfo.BUILD_TIME,
         };

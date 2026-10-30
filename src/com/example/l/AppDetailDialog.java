@@ -23,7 +23,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 适配应用点击打开子项 —— 液态玻璃详情弹窗 (AppDetailDialog)
+ * 适配应用点击打开子项 —— 磨砂玻璃（View 近似）详情弹窗 (AppDetailDialog)
  * 展示开屏广告、信息流广告、弹窗/激励视频、DexFinder 特征自动匹配等多项细分开关。
  */
 public final class AppDetailDialog {
@@ -61,7 +61,7 @@ public final class AppDetailDialog {
         card.addView(titleView);
 
         TextView subView = new TextView(context);
-        subView.setText(pkg + " · 液态玻璃细分配置");
+        subView.setText(pkg + " · 磨砂玻璃细分配置");
         subView.setTextSize(12);
         subView.setTextColor(isDark ? 0xFFA1A1AA : 0xFF71717A);
         subView.setPadding(0, (int) (4 * density), 0, dp16);
@@ -112,6 +112,7 @@ public final class AppDetailDialog {
         dialog.setContentView(root);
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            LiquidGlass.applyFrostedWindow(dialog.getWindow(), density);
             dialog.getWindow().setLayout((int) (340 * density), ViewGroup.LayoutParams.WRAP_CONTENT);
         }
         dialog.show();

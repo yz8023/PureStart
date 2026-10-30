@@ -10,7 +10,8 @@ import android.graphics.RectF;
 import android.widget.LinearLayout;
 
 /**
- * 全局液态玻璃卡片（View 近似）—— 对标 yz8023/ui 模板 Glass.kt 的 liquidGlass。
+ * 全局磨砂玻璃卡片（View 近似）。命名遵循 yz8023/ui prompts/03 路线 B：
+ * 无 backdrop 实时采样（背景位图裁剪近似）、无 lens 折射（棱光/放大近似）。
  *
  * 参数与模板设置页（SettingsScreen.kt「动效」区）一一对应：
  *  - 模糊强度 glassBlurRadiusDp      → 采样背景的磨砂档位

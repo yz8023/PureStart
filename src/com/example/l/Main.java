@@ -136,7 +136,7 @@ public class Main extends XposedModule implements HookGate {
         for (String[] t : TARGETS) {
             if (!t[0].equals(pkg)) continue;
             currentPkg = pkg;
-            log(Log.INFO, TAG, "Loaded into " + pkg + " (module v15.0.5, API 102)");
+            log(Log.INFO, TAG, "Loaded into " + pkg + " (module v15.0.6, API 102)");
 
             if ("com.realtech.xiaocan".equals(pkg)) {
                 // 小蚕为加固壳应用：先尝试直接安装；类未解密则挂三个生命周期点延迟重试

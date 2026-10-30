@@ -7,18 +7,35 @@ import android.graphics.drawable.GradientDrawable;
 import android.view.View;
 
 /**
- * 液态玻璃质感工具箱 (LiquidGlass)
- * 参考 yz8023/ui 液态玻璃规范：
+ * 磨砂玻璃（View 近似）质感工具箱
+ * 命名遵循 yz8023/ui prompts/03 路线 B 规矩：View 项目交付物称「磨砂玻璃（View 近似）」，
+ * 参数取值可借鉴模板（圆角/透明度/高光），但无 backdrop 实时采样与 lens 折射。
  *  - 28dp+ 胶囊与多层圆角
- *  - 双层半透明白色/深色底色采样
- *  - 1dp 0.45 物理折射高光边框 (Rim/Highlight Border)
+ *  - 半透明 surface 底色 + 1dp 高光描边
+ *  - API 31+ 弹窗用系统窗口背景模糊（真磨砂），以下退化半透明蒙层
  */
 public final class LiquidGlass {
     private LiquidGlass() {}
 
     /**
-     * 生成液态玻璃卡片背景（独立窗口弹窗用退化版）
-     * 模板规则：跨窗无法采样 backdrop → 退化为半透明蒙层，
+     * 系统窗口磨砂（prompts/03「近似实现优先用系统能力」）：
+     * Android 12+ 用 Window.setBackgroundBlurRadius 对弹窗身后的内容做真背景模糊；
+     * 12 以下无效果（窗口背景保持半透明蒙层，由调用方的 glassCard 退化公式兜底）。
+     */
+    public static void applyFrostedWindow(android.view.Window w, float density) {
+        if (w == null) return;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                w.setBackgroundBlurRadius((int) (20 * density));
+            }
+            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            w.setDimAmount(0.35f);
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * 生成磨砂玻璃卡片背景（独立窗口弹窗用退化版）
+     * View 无法跨窗采样 → 退化为半透明蒙层（API 31+ 配合 applyFrostedWindow 为真磨砂），
      * 公式 = 0.26 + glassTintAlpha + opacity × 0.18（clamp 0..0.72），描边随 glassBorderAlpha。
      * @param isDark 是否深色模式
      * @param cornerRadiusDp 圆角 (dp)
