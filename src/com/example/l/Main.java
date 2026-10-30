@@ -136,15 +136,20 @@ public class Main extends XposedModule implements HookGate {
         for (String[] t : TARGETS) {
             if (!t[0].equals(pkg)) continue;
             currentPkg = pkg;
-            log(Log.INFO, TAG, "Loaded into " + pkg + " (module v15.0.2, API 102)");
+            log(Log.INFO, TAG, "Loaded into " + pkg + " (module v15.0.3, API 102)");
 
             if ("com.realtech.xiaocan".equals(pkg)) {
+                // 小蚕为加固壳应用：先尝试直接安装；类未解密则挂三个生命周期点延迟重试
                 try {
-                    XiaoCanHook.install(this, cl, this);
+                    if (XiaoCanHook.canLoadTargetClasses(cl)) {
+                        XiaoCanHook.install(this, cl, this);
+                    } else {
+                        log(Log.INFO, TAG, "XiaoCan shelled, deferring install to lifecycle");
+                    }
+                    XiaoCanHook.hookLifecycleForDeferredInstall(this);
                 } catch (Throwable e) {
                     log(Log.ERROR, TAG, "XiaoCan hook failed", e);
                 }
-                hookLifecycleForShell(this, cl);
             } else {
                 try {
                     UniversalAdHook.install(this, cl, pkg, this);
@@ -156,28 +161,25 @@ public class Main extends XposedModule implements HookGate {
         }
     }
 
-    /** 应用 attach 后用真实 ClassLoader 重试（壳应用首次 install 可能加载不到业务类） */
-    private void hookLifecycleForShell(final XposedInterface xposed, final ClassLoader initialLoader) {
+    /**
+     * 原模块同款时机：包就绪后再尝试一次（壳往往在此时已解密出业务类）。
+     * XiaoCanHook 内部 AtomicBoolean 保证幂等，重复调用安全。
+     */
+    @Override
+    public void onPackageReady(XposedModuleInterface.PackageReadyParam param) {
+        String pkg = param.getPackageName();
+        if (!"com.realtech.xiaocan".equals(pkg)) return;
+        currentPkg = pkg;
+        ClassLoader cl = param.getClassLoader();
+        log(Log.INFO, TAG, "Package ready: " + pkg);
         try {
-            Method attach = Application.class.getDeclaredMethod("attach", Context.class);
-            xposed.hook(attach).intercept(new XposedInterface.Hooker() {
-                @Override
-                public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                    Object r = chain.proceed();
-                    Object app = chain.getThisObject();
-                    if (app instanceof Application) {
-                        ClassLoader cl = ((Application) app).getClassLoader();
-                        if (cl != null && cl != initialLoader) {
-                            try {
-                                XiaoCanHook.install(xposed, cl, Main.this);
-                            } catch (Throwable e) {
-                                log(Log.ERROR, TAG, "XiaoCan re-hook after attach failed", e);
-                            }
-                        }
-                    }
-                    return r;
-                }
-            });
-        } catch (Throwable ignored) {}
+            if (XiaoCanHook.canLoadTargetClasses(cl)) {
+                XiaoCanHook.install(this, cl, this);
+            } else {
+                XiaoCanHook.hookLifecycleForDeferredInstall(this);
+            }
+        } catch (Throwable e) {
+            log(Log.ERROR, TAG, "XiaoCan ready-install failed", e);
+        }
     }
 }

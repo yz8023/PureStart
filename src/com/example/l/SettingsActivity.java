@@ -33,12 +33,14 @@ import android.view.Choreographer;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 /**
@@ -171,6 +173,10 @@ public class SettingsActivity extends Activity {
     }
     private final Path capsuleClip = new Path();     // 胶囊内阴影裁剪（独立于底栏 glassClip）
     private final Paint specularPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private LinearLayout glassSectionContent;        // 玻璃细则折叠内容（平铺可折叠）
+    private TextView glassChevron;                   // 折叠指示箭头
+    private GradientDrawable barBgDrawable;          // 底栏容器底色引用（实时预览改透明度）
+    private int barSurfaceColor = 0xF0F0F4;          // 当前主题的 surfaceContainer 底色
     private BackdropView backdrop;           // 背景层引用
     private boolean blurBusy;                // 捕获中标志（防重入）
     private long lastGlassMs;                // 上次玻璃重捕时刻（节流用）
@@ -213,7 +219,7 @@ public class SettingsActivity extends Activity {
             INK = 0xFFF0F9FF;
             SUB = 0xFF94A3B8;
             IDLE_TINT = 0xFFBAE6FD;
-            BAR_BG = (Math.round((0.10f + glassOpacity() * 0.55f) * 255f) << 24) | 0x2A3B55;
+            barSurfaceColor = 0x2A3B55;
             RIPPLE = 0x3338BDF8;
             STATUS_GREEN = 0xFF34D399;
             BADGE_RED = 0xFFF87171;
@@ -233,7 +239,7 @@ public class SettingsActivity extends Activity {
             INK = 0xFFF4F4F5;
             SUB = 0xFFA1A1AA;
             IDLE_TINT = 0xFFD4D4D8;
-            BAR_BG = (Math.round((0.10f + glassOpacity() * 0.55f) * 255f) << 24) | 0x28292D;
+            barSurfaceColor = 0x28292D;
             RIPPLE = 0x3360A5FA;
             STATUS_GREEN = 0xFF4ADE80;
             BADGE_RED = 0xFFF87171;
@@ -246,23 +252,6 @@ public class SettingsActivity extends Activity {
             BLOB2 = 0xFF581C87;
             BLOB3 = 0xFF065F46;
             PILL_TAB = 0x4460A5FA;
-            ACCENT = 0xFF818CF8;
-            INK = 0xFFE8EAF2;
-            SUB = 0xFFA3A9BC;
-            IDLE_TINT = 0xFFD0D4DE;
-            BAR_BG = (Math.round((0.10f + glassOpacity() * 0.55f) * 255f) << 24) | 0x28292D;
-            RIPPLE = 0x2E818CF8;
-            STATUS_GREEN = 0xFF4ADE80;
-            BADGE_RED = 0xFFE5484D;
-            CARD_BG = 0xFF1E212B;
-            FIELD_BG = 0xFF262A36;
-            PILL_GRAY = 0xFF565B66;
-            HINT = 0xFF7A8090;
-            BACKDROP_BASE = 0xFF12141C;
-            BLOB1 = 0xFF4C51BF;
-            BLOB2 = 0xFF7E3FB8;
-            BLOB3 = 0xFF158F83;
-            PILL_TAB = 0x2E8B92A8;
         } else {
             setTheme(R.style.AppTheme);
             PAGE_BG = 0xFFF6F7FC;
@@ -270,7 +259,7 @@ public class SettingsActivity extends Activity {
             INK = 0xFF1F2430;
             SUB = 0xFF2E333A;
             IDLE_TINT = 0xFF15181C;
-            BAR_BG = (Math.round((0.10f + glassOpacity() * 0.55f) * 255f) << 24) | 0xF0F0F4;
+            barSurfaceColor = 0xF0F0F4;
             RIPPLE = 0x2E312E81;
             STATUS_GREEN = 0xFF1B7A46;
             BADGE_RED = 0xFFE5484D;
@@ -284,6 +273,7 @@ public class SettingsActivity extends Activity {
             BLOB3 = 0xFF99F6E4;
             PILL_TAB = 0x339AA0AC;
         }
+        recomputeBarTint();   // 玻璃细则：容器底色 = surfaceContainer @ 0.10 + opacity × 0.55
     }
 
     @Override
@@ -362,6 +352,7 @@ public class SettingsActivity extends Activity {
         };
         barWrap.setWillNotDraw(false);   // ViewGroup 默认不调 onDraw，必须打开
         GradientDrawable barBg = new GradientDrawable();
+        barBgDrawable = barBg;   // 玻璃细则实时预览：留底便于即时改透明度
         // 模板容器公式：surfaceContainer.copy(alpha = 0.10f + opacity * 0.55f)
         barBg.setColor(BAR_BG);
         barBg.setCornerRadius(32 * dp);   // 64dp 全胶囊半径
@@ -389,7 +380,8 @@ public class SettingsActivity extends Activity {
                         // 点击位置直接定位：底栏任意位置按下，胶囊立即跳到手指槽位
                         dockPressed = tabWidthPx > 0;
                         if (dockPressed) {
-                            float slot = clamp((ev.getX() - bar.getX()) / tabWidthPx,
+                            // 胶囊中心对准手指（修复左缘对齐造成的半槽偏移）
+                            float slot = clamp((ev.getX() - bar.getX()) / tabWidthPx - 0.5f,
                                     0f, tabItems.length - 1f);
                             slotSpring.value = slotSpring.target = slot;
                             slotSpring.vel = 0f;
@@ -968,8 +960,8 @@ public class SettingsActivity extends Activity {
         bg.setColor(CARD_BG);
         bg.setCornerRadius(24 * dp);
         // 玻璃细则（模板 AppChrome.glassBorderAlpha）：卡片高光描边强度
-        int bAlpha = Math.round(clamp(hookPrefs().getInt("glass_border", 20) / 100f, 0f, 0.8f) * 255f);
-        bg.setStroke((int) (1f * dp), (bAlpha << 24) | 0xFFFFFF);
+        bg.setStroke((int) (1f * dp), cardStrokeColor());
+        card.setTag("glass_card");   // 玻璃细则实时预览：滑杆改动时全树重描边
         card.setBackground(bg);
         return card;
     }
@@ -1104,7 +1096,7 @@ public class SettingsActivity extends Activity {
         box.addView(sectionHeader("个性化"));
         addCard(box, appearanceRow());
         addCard(box, setRow(R.drawable.ic_set_drop, "液态模糊", "为模块界面增加液态玻璃效果", "set_liquid_blur"));
-        addCard(box, glassConfigRow());
+        addCard(box, glassSectionCard());
         addCard(box, languageRow());
         addCard(box, setRow(R.drawable.ic_set_bell, "底栏应用角标", "在底栏“应用”按钮上显示数量角标", "set_app_badge"));
 
@@ -1244,12 +1236,194 @@ public class SettingsActivity extends Activity {
         }
     }
 
-    /** 玻璃细则配置行：点击弹出模板 AppChrome 同名参数面板 */
-    private LinearLayout glassConfigRow() {
-        LinearLayout row = setRow(R.drawable.ic_set_palette, "玻璃细则配置",
-                "不透明度 / 模糊半径 / 折射 / 高光 / 阻尼（对标 ui 模板）", null);
-        row.setOnClickListener(v -> GlassConfigDialog.show(this, darkMode, () -> recreate()));
-        return row;
+    /** 玻璃细则：平铺可折叠卡片（对标 ui 模板 AppChrome，改动即时实时预览） */
+    private LinearLayout glassSectionCard() {
+        LinearLayout card = makeCard();
+        card.setOrientation(LinearLayout.VERTICAL);
+
+        // 头部：图标 + 标题 + 折叠箭头
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding((int) (14 * dp), (int) (14 * dp), (int) (14 * dp), (int) (14 * dp));
+        ImageView hIcon = new ImageView(this);
+        hIcon.setImageResource(R.drawable.ic_set_palette);
+        hIcon.setColorFilter(ACCENT);
+        header.addView(hIcon, new LinearLayout.LayoutParams((int) (26 * dp), (int) (26 * dp)));
+        LinearLayout hMid = new LinearLayout(this);
+        hMid.setOrientation(LinearLayout.VERTICAL);
+        hMid.setPadding((int) (12 * dp), 0, 0, 0);
+        TextView hTitle = new TextView(this);
+        hTitle.setText("玻璃细则");
+        hTitle.setTextSize(15);
+        hTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        hTitle.setTextColor(INK);
+        hMid.addView(hTitle);
+        TextView hSub = new TextView(this);
+        hSub.setText("实时预览 · 对标 ui 模板 AppChrome 参数");
+        hSub.setTextSize(12);
+        hSub.setTextColor(SUB);
+        hSub.setPadding(0, (int) (2 * dp), 0, 0);
+        hMid.addView(hSub);
+        header.addView(hMid, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        glassChevron = new TextView(this);
+        glassChevron.setText("▾");
+        glassChevron.setTextSize(18);
+        glassChevron.setTextColor(SUB);
+        glassChevron.setRotation(180f);   // 默认展开（平铺）
+        header.addView(glassChevron);
+        header.setOnClickListener(v -> toggleGlassSection());
+        card.addView(header);
+
+        // 内容：默认平铺展开，滑杆改动实时预览
+        glassSectionContent = new LinearLayout(this);
+        glassSectionContent.setOrientation(LinearLayout.VERTICAL);
+        glassSectionContent.setPadding((int) (14 * dp), 0, (int) (14 * dp), (int) (12 * dp));
+        glassSliderRow(glassSectionContent, "玻璃不透明度", "glass_opacity", 0, 100, 55, "%");
+        glassSliderRow(glassSectionContent, "玻璃模糊半径", "glass_blur", 0, 40, 4, "dp");
+        glassSliderRow(glassSectionContent, "折射强度", "glass_refraction", 0, 100, 100, "%");
+        glassSliderRow(glassSectionContent, "高光描边", "glass_border", 0, 80, 20, "%");
+        glassSliderRow(glassSectionContent, "动效阻尼", "glass_damping", 0, 100, 50, "%");
+        glassSwitchRow(glassSectionContent, "鲜艳增强 (Vibrancy)", "glass_vibrancy");
+        TextView note = new TextView(this);
+        note.setText("View 近似说明：无透镜折射与色差，胶囊绘制于标签之下；拖动滑杆即刻在底栏与全部卡片上实时预览。");
+        note.setTextSize(11);
+        note.setTextColor(SUB);
+        note.setLineSpacing(3 * dp, 1f);
+        note.setPadding(0, (int) (10 * dp), 0, 0);
+        glassSectionContent.addView(note);
+        card.addView(glassSectionContent);
+        return card;
+    }
+
+    /** 折叠 / 展开（高度过渡 + 箭头旋转） */
+    private void toggleGlassSection() {
+        if (glassSectionContent == null) return;
+        boolean expand = glassSectionContent.getVisibility() != View.VISIBLE;
+        try {
+            android.transition.TransitionManager.beginDelayedTransition(
+                    (ViewGroup) glassSectionContent.getParent(),
+                    new android.transition.AutoTransition().setDuration(240));
+        } catch (Throwable ignored) {}
+        glassSectionContent.setVisibility(expand ? View.VISIBLE : View.GONE);
+        if (glassChevron != null) {
+            glassChevron.animate().rotation(expand ? 180f : 0f).setDuration(240).start();
+        }
+    }
+
+    /** 滑杆行：名称 + 当前值（强调色）+ 着色 SeekBar（改动实时预览） */
+    private void glassSliderRow(LinearLayout box, String name, final String key,
+                                final int min, final int max, final int def, final String unit) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, (int) (8 * dp), 0, (int) (8 * dp));
+
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView nm = new TextView(this);
+        nm.setText(name);
+        nm.setTextSize(14);
+        nm.setTypeface(Typeface.DEFAULT_BOLD);
+        nm.setTextColor(INK);
+        head.addView(nm, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        final TextView val = new TextView(this);
+        val.setTextSize(13);
+        val.setTextColor(ACCENT);
+        val.setText(hookPrefs().getInt(key, def) + unit);
+        head.addView(val);
+        row.addView(head);
+
+        SeekBar sb = new SeekBar(this);
+        sb.setMax(max - min);
+        sb.setProgress(hookPrefs().getInt(key, def) - min);
+        sb.setProgressTintList(ColorStateList.valueOf(ACCENT));
+        sb.setThumbTintList(ColorStateList.valueOf(ACCENT));
+        sb.setProgressBackgroundTintList(ColorStateList.valueOf(
+                darkMode ? 0x33FFFFFF : 0x1A18181B));
+        sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
+                int v = min + p;
+                val.setText(v + unit);
+                hookPrefs().edit().putInt(key, v).apply();
+                applyGlassLive();   // 实时预览：底栏透明度/模糊/描边/阻尼即时生效
+            }
+            @Override public void onStartTrackingTouch(SeekBar s) {}
+            @Override public void onStopTrackingTouch(SeekBar s) {}
+        });
+        row.addView(sb, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        box.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+    }
+
+    /** 开关行：鲜艳增强（改动实时预览） */
+    private void glassSwitchRow(LinearLayout box, String name, final String key) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, (int) (8 * dp), 0, (int) (8 * dp));
+        TextView nm = new TextView(this);
+        nm.setText(name);
+        nm.setTextSize(14);
+        nm.setTypeface(Typeface.DEFAULT_BOLD);
+        nm.setTextColor(INK);
+        row.addView(nm, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        android.widget.Switch sw = new android.widget.Switch(this);
+        sw.setChecked(hookPrefs().getBoolean(key, true));
+        sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            hookPrefs().edit().putBoolean(key, isChecked).apply();
+            applyGlassLive();
+        });
+        row.addView(sw);
+        box.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+    }
+
+    /** 玻璃细则实时预览：一处改动，底栏 + 卡片 + 弹簧 + 采样全部即时刷新 */
+    private void applyGlassLive() {
+        recomputeBarTint();
+        requestGlassRefresh();
+        if (pill != null) pill.invalidate();
+        applyMotionTuning();
+        applyVibrancy();
+        restrokeCards();
+        if (barWrap != null) barWrap.invalidate();
+    }
+
+    /** 容器底色 = surfaceContainer @ 0.10 + opacity × 0.55（模板公式，实时可变） */
+    private void recomputeBarTint() {
+        float alpha = clamp(0.10f + glassOpacity() * 0.55f, 0f, 1f);
+        BAR_BG = (Math.round(alpha * 255f) << 24) | (barSurfaceColor & 0xFFFFFF);
+        if (barBgDrawable != null) barBgDrawable.setColor(BAR_BG);
+    }
+
+    private int cardStrokeColor() {
+        int bAlpha = Math.round(clamp(hookPrefs().getInt("glass_border", 20) / 100f, 0f, 0.8f) * 255f);
+        return (bAlpha << 24) | 0xFFFFFF;
+    }
+
+    /** 全视图树重描卡片高光描边（高光滑杆实时预览） */
+    private void restrokeCards() {
+        if (pageContainer != null) restrokeRecursive(pageContainer, cardStrokeColor());
+    }
+
+    private void restrokeRecursive(View v, int strokeCol) {
+        if (v == null) return;
+        if ("glass_card".equals(v.getTag())
+                && v.getBackground() instanceof GradientDrawable) {
+            ((GradientDrawable) v.getBackground()).setStroke((int) (1f * dp), strokeCol);
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) restrokeRecursive(g.getChildAt(i), strokeCol);
+        }
     }
 
     /** 外观行：点击弹出液态玻璃质感弹窗，副标题显示当前选择 */
@@ -1414,7 +1588,7 @@ public class SettingsActivity extends Activity {
         about.setPadding((int) (18 * dp), (int) (16 * dp), (int) (18 * dp), (int) (16 * dp));
         String[] infos = {
                 "开源地址", "github.com/yz8023/PureStart",
-                "模块版本", "v15.0.2 (ModKit Edition)",
+                "模块版本", "v15.0.3 (ModKit Edition)",
                 "Hook 接口", "libxposed API 102（Modern Xposed）",
                 "构建时间", BuildInfo.BUILD_TIME,
         };
