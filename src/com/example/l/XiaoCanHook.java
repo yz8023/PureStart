@@ -45,6 +45,23 @@ public final class XiaoCanHook {
     private static final AtomicBoolean HOOKED = new AtomicBoolean(false);
     private static final AtomicBoolean LIFECYCLE_HOOKED = new AtomicBoolean(false);
     private static volatile HookGate gate;
+    private static Main.Reporter reporter;   // 安装结果回传（自检页）；无则仅日志
+
+    /** 可选目标缺失（预期内，如目标 App 版本变化）——留痕不静默 */
+    private static void repOptional(Throwable t) {
+        if (reporter != null) reporter.miss(String.valueOf(t));
+        Log.i(TAG, "optional target absent: " + t);
+    }
+
+    /** 安装失败——必须留痕（类名 + 异常） */
+    private static void repFail(String what, Throwable t) {
+        if (reporter != null) reporter.fail(what, t);
+        Log.w(TAG, "hook install FAILED: " + what + " — " + t);
+    }
+
+    private static void repOk(String what) {
+        if (reporter != null) reporter.ok(what);
+    }
 
     private XiaoCanHook() {}
 
@@ -60,7 +77,8 @@ public final class XiaoCanHook {
     }
 
     /** 延迟安装：三个生命周期点重试（壳解密后类可见时一次性安装） */
-    public static void hookLifecycleForDeferredInstall(XposedInterface xposed) {
+    public static void hookLifecycleForDeferredInstall(XposedInterface xposed, Main.Reporter rep) {
+        if (rep != null) reporter = rep;
         if (!LIFECYCLE_HOOKED.compareAndSet(false, true)) return;
         try {
             Method attachBaseContext = Application.class.getDeclaredMethod("attachBaseContext", Context.class);
@@ -69,7 +87,7 @@ public final class XiaoCanHook {
                 try {
                     Context context = (Context) chain.getArgs().get(0);
                     if (context != null) tryInstall(xposed, context.getClassLoader());
-                } catch (Throwable ignored) {}
+                } catch (Throwable t) { repOptional(t); }
                 return result;
             });
         } catch (Throwable t) {
@@ -82,7 +100,7 @@ public final class XiaoCanHook {
                 try {
                     Application app = (Application) chain.getThisObject();
                     if (app != null) tryInstall(xposed, app.getClassLoader());
-                } catch (Throwable ignored) {}
+                } catch (Throwable t) { repOptional(t); }
                 return result;
             });
         } catch (Throwable t) {
@@ -94,7 +112,7 @@ public final class XiaoCanHook {
                 try {
                     Activity activity = (Activity) chain.getThisObject();
                     if (activity != null) tryInstall(xposed, activity.getClassLoader());
-                } catch (Throwable ignored) {}
+                } catch (Throwable t) { repOptional(t); }
                 return chain.proceed();
             });
         } catch (Throwable t) {
@@ -103,7 +121,7 @@ public final class XiaoCanHook {
     }
 
     private static void tryInstall(XposedInterface xposed, ClassLoader cl) {
-        if (canLoadTargetClasses(cl)) install(xposed, cl, gate);
+        if (canLoadTargetClasses(cl)) install(xposed, cl, gate, reporter);
     }
 
     private static boolean on(String key) {
@@ -112,8 +130,10 @@ public final class XiaoCanHook {
     }
 
     /** 一次性安装全部净化 Hook（AtomicBoolean 保证幂等） */
-    public static synchronized void install(XposedInterface xposed, ClassLoader cl, HookGate g) {
+    public static synchronized void install(XposedInterface xposed, ClassLoader cl, HookGate g,
+                                            Main.Reporter rep) {
         if (g != null) gate = g;
+        if (rep != null) reporter = rep;
         if (!HOOKED.compareAndSet(false, true)) return;
         Log.i(TAG, "Target classes available, installing XiaoCan purifier hooks");
         hookSplashActivity(xposed, cl);
@@ -132,6 +152,7 @@ public final class XiaoCanHook {
         hookMainViewModelPopups(xposed, cl);
         hookKuiklyDialogQueue(xposed, cl);
         Log.i(TAG, "XiaoCan purifier hooks installed");
+        if (reporter != null) reporter.republish();   // 延迟安装完成后同步自检页
     }
 
     // ------------------------------------------------------------------
@@ -161,12 +182,12 @@ public final class XiaoCanHook {
                         }
                         return result;
                     });
-                    Log.i(TAG, "Hooked WelComeActivity to skip splash");
+                    Log.i(TAG, "Hooked WelComeActivity to skip splash"); repOk("WelComeActivity to skip splash");
                     break;
                 }
             }
         } catch (Throwable t) {
-            Log.w(TAG, "Failed to hook WelComeActivity: " + t);
+            repFail("Failed to hook WelComeActivity", t);
         }
     }
 
@@ -192,11 +213,11 @@ public final class XiaoCanHook {
                                             try {
                                                 Method onClosed = listenerInterface.getMethod("onAdClosed");
                                                 onClosed.invoke(listener);
-                                            } catch (Throwable t) {
+                                            } catch (Throwable closedErr) {
                                                 try {
                                                     Method onError = listenerInterface.getMethod("onAdError");
                                                     onError.invoke(listener);
-                                                } catch (Throwable ignored) {}
+                                                } catch (Throwable t) { repOptional(t); }
                                             }
                                         });
                                         return null;
@@ -217,7 +238,7 @@ public final class XiaoCanHook {
                 }
             }
         } catch (Throwable t) {
-            Log.w(TAG, "Failed to hook SplashAdSourceFactory: " + t);
+            repFail("Failed to hook SplashAdSourceFactory", t);
         }
     }
 
@@ -233,14 +254,14 @@ public final class XiaoCanHook {
                     break;
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
 
         try {
             Class<?> placementManager = Class.forName("com.realtech.xiaocan.ad.splash.SplashAdPlacementManager", false, cl);
             Method refreshAsync = placementManager.getDeclaredMethod("refreshAsync");
             xposed.hook(refreshAsync).intercept(chain -> on("splash") ? null : chain.proceed());
-            Log.i(TAG, "Hooked SplashAdPlacementManager.refreshAsync");
-        } catch (Throwable ignored) {}
+            Log.i(TAG, "Hooked SplashAdPlacementManager.refreshAsync"); repOk("SplashAdPlacementManager.refreshAsync");
+        } catch (Throwable t) { repOptional(t); }
     }
 
     // ------------------------------------------------------------------
@@ -255,8 +276,8 @@ public final class XiaoCanHook {
                     xposed.hook(m).intercept(chain -> on("enabled") ? null : chain.proceed());
                 }
             }
-            Log.i(TAG, "Hooked SilentTaskEngine");
-        } catch (Throwable ignored) {}
+            Log.i(TAG, "Hooked SilentTaskEngine"); repOk("SilentTaskEngine");
+        } catch (Throwable t) { repOptional(t); }
     }
 
     // ------------------------------------------------------------------
@@ -276,7 +297,7 @@ public final class XiaoCanHook {
                     root.setLayoutParams(lp);
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
     }
 
     private static void hookFeedAndBannerAds(XposedInterface xposed, ClassLoader cl) {
@@ -290,11 +311,11 @@ public final class XiaoCanHook {
                         }
                         return null;
                     });
-                    Log.i(TAG, "Hooked HomeFeedAdItemHolder.bind");
+                    Log.i(TAG, "Hooked HomeFeedAdItemHolder.bind"); repOk("HomeFeedAdItemHolder.bind");
                     break;
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
 
         try {
             Class<?> bannerHolderClass = Class.forName("com.realtech.promotion.adapters.holder.HomeHeadBannerHolder", false, cl);
@@ -309,8 +330,8 @@ public final class XiaoCanHook {
                     });
                 }
             }
-            Log.i(TAG, "Hooked HomeHeadBannerHolder");
-        } catch (Throwable ignored) {}
+            Log.i(TAG, "Hooked HomeHeadBannerHolder"); repOk("HomeHeadBannerHolder");
+        } catch (Throwable t) { repOptional(t); }
     }
 
     // ------------------------------------------------------------------
@@ -325,8 +346,8 @@ public final class XiaoCanHook {
                     xposed.hook(m).intercept(chain -> on("enabled") ? null : chain.proceed());
                 }
             }
-            Log.i(TAG, "Hooked FloatingAdManager");
-        } catch (Throwable ignored) {}
+            Log.i(TAG, "Hooked FloatingAdManager"); repOk("FloatingAdManager");
+        } catch (Throwable t) { repOptional(t); }
     }
 
     // ------------------------------------------------------------------
@@ -356,12 +377,12 @@ public final class XiaoCanHook {
                         }
                         return null;
                     });
-                    Log.i(TAG, "Hooked HomeAppBarLayoutView.renderSearchRightBanner");
+                    Log.i(TAG, "Hooked HomeAppBarLayoutView.renderSearchRightBanner"); repOk("HomeAppBarLayoutView.renderSearchRightBanner");
                     break;
                 }
             }
         } catch (Throwable t) {
-            Log.w(TAG, "Failed to hook HomeAppBarLayoutView: " + t);
+            repFail("Failed to hook HomeAppBarLayoutView", t);
         }
     }
 
@@ -441,7 +462,7 @@ public final class XiaoCanHook {
                     xposed.hook(m).intercept(chain -> on("enabled") ? null : chain.proceed());
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
 
         try {
             Class<?> amHandler = Class.forName("com.realtech.am_sdk_plugin.AmInterstitialAdHandler", false, cl);
@@ -451,7 +472,7 @@ public final class XiaoCanHook {
                     xposed.hook(m).intercept(chain -> on("enabled") ? null : chain.proceed());
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
 
         // WindMill 原生广告工厂：返回空视图代理
         try {
@@ -473,12 +494,12 @@ public final class XiaoCanHook {
                                     return null;
                                 });
                     });
-                    Log.i(TAG, "Hooked WindMillNativeAdViewFactory.create");
+                    Log.i(TAG, "Hooked WindMillNativeAdViewFactory.create"); repOk("WindMillNativeAdViewFactory.create");
                     break;
                 }
             }
         } catch (Throwable t) {
-            Log.w(TAG, "Failed to hook WindMillNativeAdViewFactory: " + t);
+            repFail("Failed to hook WindMillNativeAdViewFactory", t);
         }
 
         try {
@@ -491,7 +512,7 @@ public final class XiaoCanHook {
                     xposed.hook(m).intercept(chain -> on("feed") ? Boolean.FALSE : chain.proceed());
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
 
         try {
             Class<?> nativeClass = Class.forName("com.windmill.windmill_ad_plugin.feedAd.NativeAd", false, cl);
@@ -503,7 +524,7 @@ public final class XiaoCanHook {
                     xposed.hook(m).intercept(chain -> on("feed") ? Boolean.FALSE : chain.proceed());
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
 
         try {
             Class<?> wmBannerView = Class.forName("com.windmill.sdk.banner.WMBannerView", false, cl);
@@ -512,7 +533,7 @@ public final class XiaoCanHook {
                     xposed.hook(m).intercept(chain -> on("feed") ? null : chain.proceed());
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
     }
 
     // ------------------------------------------------------------------
@@ -533,7 +554,7 @@ public final class XiaoCanHook {
                 }
                 return chain.proceed();
             });
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
     }
 
     private static boolean isAdActivityName(String lowerName) {
@@ -575,14 +596,14 @@ public final class XiaoCanHook {
                     Log.i(TAG, "Blocked dialog by content after show, dismissing");
                     try {
                         dialog.dismiss();
-                    } catch (Throwable ignored) {}
+                    } catch (Throwable t) { repOptional(t); }
                     return null;
                 }
                 return result;
             });
-            Log.i(TAG, "Content-based dialog guard installed");
+            Log.i(TAG, "Content-based dialog guard installed"); repOk("Dialog.show content guard");
         } catch (Throwable t) {
-            Log.w(TAG, "Failed to hook Dialog.show by content: " + t);
+            repFail("Failed to hook Dialog.show by content", t);
         }
     }
 
@@ -657,8 +678,8 @@ public final class XiaoCanHook {
                         });
                     }
                 }
-                Log.i(TAG, "Hooked dialog class: " + cName);
-            } catch (Throwable ignored) {}
+                Log.i(TAG, "Hooked dialog class: " + cName); repOk(cName);
+            } catch (Throwable t) { repOptional(t); }
         }
     }
 
@@ -675,7 +696,7 @@ public final class XiaoCanHook {
                     break;
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
     }
 
     private static void hookAppUpdateService(XposedInterface xposed, ClassLoader cl) {
@@ -688,7 +709,7 @@ public final class XiaoCanHook {
                     break;
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
     }
 
     private static void hookMainViewModelPopups(XposedInterface xposed, ClassLoader cl) {
@@ -703,7 +724,7 @@ public final class XiaoCanHook {
                     }
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
     }
 
     private static void hookKuiklyDialogQueue(XposedInterface xposed, ClassLoader cl) {
@@ -716,7 +737,7 @@ public final class XiaoCanHook {
                     break;
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
 
         try {
             Class<?> dqmClass = Class.forName("com.realtech.xiaocankuikly.utils.DialogQueueManager", false, cl);
@@ -726,6 +747,6 @@ public final class XiaoCanHook {
                     xposed.hook(m).intercept(chain -> on("popup") ? null : chain.proceed());
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) { repOptional(t); }
     }
 }

@@ -45,8 +45,15 @@ public final class UniversalAdHook {
 
     private UniversalAdHook() {}
 
-    public static void install(XposedInterface xposed, ClassLoader cl, final String pkg, final HookGate gate) {
+    public static void install(XposedInterface xposed, ClassLoader cl, final String pkg,
+                               final HookGate gate, final Main.Reporter rep) {
         if (xposed == null) return;
+        final Main.Reporter reporter = rep != null ? rep : new Main.Reporter() {
+            @Override public void ok(String what) {}
+            @Override public void miss(String what) {}
+            @Override public void fail(String what, Throwable t) {}
+            @Override public void republish() {}
+        };
         try {
             Method actCreate = Activity.class.getDeclaredMethod("onCreate", Bundle.class);
             xposed.hook(actCreate).intercept(new XposedInterface.Hooker() {
@@ -80,7 +87,7 @@ public final class UniversalAdHook {
                 }
             });
         } catch (Throwable t) {
-            Log.w(TAG, "hook Activity.onCreate error in " + pkg + ": " + t);
+            reporter.fail("Activity.onCreate@" + pkg, t);
         }
 
         try {
@@ -103,7 +110,7 @@ public final class UniversalAdHook {
                 }
             });
         } catch (Throwable t) {
-            Log.w(TAG, "hook addView error in " + pkg + ": " + t);
+            reporter.fail("addView@" + pkg, t);
         }
 
         try {
@@ -126,8 +133,9 @@ public final class UniversalAdHook {
                 }
             });
         } catch (Throwable t) {
-            Log.w(TAG, "hook Dialog.show error in " + pkg + ": " + t);
+            reporter.fail("Dialog.show@" + pkg, t);
         }
+        reporter.ok("universal-engine@" + pkg);   // 三大通用引擎安装完成
     }
 
     // ------------------------------------------------------------------

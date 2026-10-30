@@ -14,21 +14,21 @@ import android.widget.LinearLayout;
  * 无 backdrop 实时采样（背景位图裁剪近似）、无 lens 折射（棱光/放大近似）。
  *
  * 参数与模板设置页（SettingsScreen.kt「动效」区）一一对应：
- *  - 模糊强度 glassBlurRadiusDp      → 采样背景的磨砂档位
+ *  - 模糊强度 glassBlurRadiusDp      → 背景位图的磨砂档位
  *  - 折射高度 glassRefractionHeightDp → 边缘棱光厚度（透镜边缘高度的 View 近似）
- *  - 折射幅度 glassRefractionAmountDp → 采样层放大（透镜内壁纸内容偏移的 View 近似）
+ *  - 折射幅度 glassRefractionAmountDp → 背景层放大（自创近似映射，非模板行为）
  *  - 玻璃染色 glassTintAlpha          → 染色层（Glass.kt: tintAlpha + opacity×0.04）
  *  - 高光边框 glassBorderAlpha        → 1dp 镜面棱
  *  - 色差折射 glassChromaticAberration→ 棱光 RGB 色散（View 近似）
  *
- * 逐层：①按卡片实时窗口位置裁剪模糊背景（backdrop 采样近似）
+ * 逐层：①按卡片实时窗口位置裁剪模糊背景位图（窗口内内容模糊近似，非 Compose backdrop 语义）
  *      ②染色层 ③折射棱光(+色散) ④高光描边 ⑤无背景时退化蒙层。
  * 底栏软捕获期间（isGlassCapturePass）只画蒙层 —— 细节反正会被底栏磨砂掉，
- * 跳过采样与描边可把滑动帧开销压回实色卡片水平（滑动卡顿修复）。
+ * 跳过裁剪与描边可把滑动帧开销压回实色卡片水平（滑动卡顿修复）。
  */
 public class GlassCardView extends LinearLayout {
 
-    /** 宿主：由 SettingsActivity 实现，提供采样位图与玻璃细则参数（全部实时读取） */
+    /** 宿主：由 SettingsActivity 实现，提供背景位图与磨砂参数（全部实时读取） */
     public interface Host {
         Bitmap glassBackdropSample(int blurDp);
         int glassBackdropWidth();
@@ -73,7 +73,7 @@ public class GlassCardView extends LinearLayout {
         c.save();
         c.clipPath(clipPath);
 
-        // 底栏软捕获期间：只画退化蒙层（细节会被底栏磨砂掉，跳过采样/描边省 CPU）
+        // 底栏软捕获期间：只画退化蒙层（细节会被底栏磨砂掉，跳过裁剪/描边省 CPU）
         if (host != null && host.isGlassCapturePass()) {
             int fbA = Math.round(host.glassFallbackAlpha() * 255f);
             c.drawColor((fbA << 24) | (host.glassSurfaceColor() & 0xFFFFFF));
@@ -86,7 +86,7 @@ public class GlassCardView extends LinearLayout {
             bmp = host.glassBackdropSample(host.glassBlurDp());
         }
         if (bmp != null) {
-            // ① 采样层：按卡片实时窗口位置裁剪模糊背景（滚动随动）
+            // ① 背景裁剪层：按卡片实时窗口位置裁剪模糊背景位图（滚动随动）
             getLocationInWindow(loc);
             float sx = bmp.getWidth() / (float) Math.max(1, host.glassBackdropWidth());
             float sy = bmp.getHeight() / (float) Math.max(1, host.glassBackdropHeight());
@@ -96,7 +96,7 @@ public class GlassCardView extends LinearLayout {
                     Math.min(bmp.getWidth(), Math.round((loc[0] + w) * sx)),
                     Math.min(bmp.getHeight(), Math.round((loc[1] + h) * sy)));
             if (src.right > src.left && src.bottom > src.top) {
-                // 折射幅度 → 采样层轻微放大（透镜内壁纸内容偏移的 View 近似，20dp ≈ 1.05×）
+                // 折射幅度 → 背景层轻微放大（自创近似映射：透镜内容偏移的替身，20dp ≈ 1.05×）
                 float mag = 1f + host.glassRefractionAmountDp() / 400f;
                 float gw = w * mag, gh = h * mag;
                 dst.set((w - gw) / 2f, (h - gh) / 2f, (w + gw) / 2f, (h + gh) / 2f);
@@ -106,7 +106,7 @@ public class GlassCardView extends LinearLayout {
             int tintA = Math.round(host.glassCardTintAlpha() * 255f);
             c.drawColor((tintA << 24) | (host.glassSurfaceColor() & 0xFFFFFF));
         } else {
-            // ⑤ 退化：无背景可采样 → 半透明蒙层（模板独立窗口弹窗同款降级）
+            // ⑤ 退化：背景位图不可用 → 半透明蒙层（模板独立窗口弹窗同款降级）
             int fbA = Math.round(host != null ? host.glassFallbackAlpha() * 255f : 0x99);
             int surface = host != null ? host.glassSurfaceColor() : 0xFFF0F0F4;
             c.drawColor((fbA << 24) | (surface & 0xFFFFFF));

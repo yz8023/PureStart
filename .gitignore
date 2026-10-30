@@ -1,5 +1,3 @@
 build/
 *.apk
-*.keystore
-.DS_Store
-.gradle/
+!debug.keystore

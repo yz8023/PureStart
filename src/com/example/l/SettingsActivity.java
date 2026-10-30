@@ -178,7 +178,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     private GradientDrawable barBgDrawable;          // 底栏容器底色引用（实时预览改透明度）
     private int barSurfaceColor = 0xF0F0F4;          // 当前主题的 surfaceContainer 底色
     private final Paint cardSamplePaint = new Paint(
-            Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);   // 卡片采样画笔（vibrancy 随动）
+            Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);   // 卡片背景裁剪画笔（vibrancy 随动）
     private volatile boolean glassCapturePass;   // 底栏软捕获期间：卡片只画蒙层（省 CPU）
     private BackdropView backdrop;           // 背景层引用
     private boolean blurBusy;                // 捕获中标志（防重入）
@@ -695,19 +695,20 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         return v < lo ? lo : Math.min(v, hi);
     }
 
-    /** 玻璃细则（模板 AppChrome）：不透明度 0..1，容器 alpha = 0.10 + opacity × 0.55 */
+    // ==== 偏好读取统一经 GlassPrefs（单一事实来源，不再散落各处直读键名） ====
+
     private float glassOpacity() {
-        return clamp(hookPrefs().getInt("glass_opacity", 55) / 100f, 0f, 1f);
+        return GlassPrefs.opacity(this);
     }
 
-    /** 模糊强度滑杆（模板 0..40dp，默认 0）：dp → 5×5 采样间距；0 = 清晰通透（免 25 抽头） */
+    /** 模糊强度 dp → 5×5 偏移采样间距；0 = 清晰通透（免 25 抽头） */
     private int fgBlurStep() {
-        return (int) clamp(Math.round(hookPrefs().getInt("glass_blur", 0) / 4f), 0, 10);
+        return (int) GlassPrefs.clamp(Math.round(GlassPrefs.blurDp(this) / 4f), 0, 10);
     }
 
     /** 玻璃细则：动效阻尼 → 全部弹簧 DampedRatio 缩放（模板 运动.kt 公式） */
     private void applyMotionTuning() {
-        float d = clamp(hookPrefs().getInt("glass_damping", 50) / 100f, 0f, 1f);
+        float d = GlassPrefs.damping(this);
         slotSpring.dampingRatio = dampedRatio(1f, d);
         pressSpring.dampingRatio = dampedRatio(1f, d);
         velSpring.dampingRatio = dampedRatio(0.5f, d);
@@ -723,14 +724,14 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     /** 鲜艳增强（模板 vibrancy）：采样背景饱和度 +18% */
     private void applyVibrancy() {
         ColorMatrixColorFilter cf = null;
-        if (hookPrefs().getBoolean("glass_vibrancy", true)) {
+        if (GlassPrefs.vibrancy(this)) {
             ColorMatrix cm = new ColorMatrix();
             cm.setSaturation(1.18f);
             cf = new ColorMatrixColorFilter(cm);
         }
         contentPaint.setColorFilter(cf);
         glassPaint.setColorFilter(cf);
-        cardSamplePaint.setColorFilter(cf);   // 全部玻璃卡片采样层同步鲜艳增强
+        cardSamplePaint.setColorFilter(cf);   // 全部磨砂卡片背景层同步鲜艳增强
     }
 
     private void animateTint(ImageView iv, int from, int to) {
@@ -875,13 +876,12 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         LinearLayout.LayoutParams half2 = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         half2.leftMargin = (int) (12 * dp);
-        // 已安装软件卡：getInstalledPackages 枚举全部包很慢（可上百 ms），
-        // 绝不能在 onCreate 主线程同步调 → 先占位，后台线程统计后回填
+        // 目标应用卡：逐包查 17 个目标（<queries> 已声明可见），后台线程统计后回填
         LinearLayout appsCard = makeCard();
         appsCard.setPadding((int) (20 * dp), (int) (16 * dp),
                 (int) (20 * dp), (int) (16 * dp));
         TextView appsLabel = new TextView(this);
-        appsLabel.setText("已安装软件");
+        appsLabel.setText("目标应用已装");
         appsLabel.setTextSize(13);
         appsLabel.setTextColor(SUB);
         appsCard.addView(appsLabel);
@@ -950,6 +950,78 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         return scroll;
     }
 
+    /** Hook 自检卡：读取目标应用进程经 Provider 回传的安装结果（未上报/已装/失败明细） */
+    private LinearLayout selfCheckCard() {
+        LinearLayout card = makeCard();
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding((int) (16 * dp), (int) (14 * dp), (int) (16 * dp), (int) (8 * dp));
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = new TextView(this);
+        title.setText("目标应用安装状态");
+        title.setTextSize(14);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(INK);
+        head.addView(title, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        final LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        TextView refresh = new TextView(this);
+        refresh.setText("刷新");
+        refresh.setTextSize(13);
+        refresh.setTextColor(ACCENT);
+        refresh.setPadding((int) (10 * dp), (int) (4 * dp), (int) (10 * dp), (int) (4 * dp));
+        refresh.setOnClickListener(v -> renderSelfCheck(list));
+        head.addView(refresh);
+        card.addView(head);
+        card.addView(list);
+        renderSelfCheck(list);
+        return card;
+    }
+
+    private void renderSelfCheck(LinearLayout list) {
+        list.removeAllViews();
+        android.content.SharedPreferences sp =
+                getSharedPreferences("selfcheck", MODE_PRIVATE);
+        java.text.DateFormat tf = new java.text.SimpleDateFormat("MM-dd HH:mm",
+                java.util.Locale.getDefault());
+        for (String[] t : Main.TARGETS) {
+            String row = sp.getString(t[0], null);
+            TextView line = new TextView(this);
+            line.setTextSize(12);
+            line.setPadding(0, (int) (4 * dp), 0, (int) (4 * dp));
+            if (row == null) {
+                line.setText(t[1].split(" · ")[0] + "：未上报（打开一次目标应用后自动回传）");
+                line.setTextColor(SUB);
+            } else {
+                String[] p = row.split("\\|", -1);   // ok|miss|fails|version|at
+                int ok = 0, miss = 0;
+                try { ok = Integer.parseInt(p[0]); } catch (Throwable ignored) {}
+                try { miss = Integer.parseInt(p[1]); } catch (Throwable ignored) {}
+                String fails = p.length > 2 ? p[2] : "";
+                String ver = p.length > 3 ? p[3] : "?";
+                long at = 0L;
+                try { at = Long.parseLong(p.length > 4 ? p[4] : "0"); } catch (Throwable ignored) {}
+                StringBuilder sb = new StringBuilder();
+                sb.append(t[1].split(" · ")[0]).append("：已装 ").append(ok).append(" 项");
+                if (miss > 0) sb.append(" · 缺 ").append(miss);
+                if (fails != null && !fails.isEmpty()) {
+                    sb.append(" · 失败: ").append(fails, 0, Math.min(fails.length(), 80));
+                    line.setTextColor(BADGE_RED);
+                } else {
+                    line.setTextColor(ok > 0 ? STATUS_GREEN : SUB);
+                }
+                sb.append("\n").append("v").append(ver).append(" · ")
+                        .append(at > 0 ? tf.format(new java.util.Date(at)) : "—");
+                line.setText(sb.toString());
+            }
+            list.addView(line, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+    }
+
     /** 桌面图标开关：真实切换 activity-alias（禁用即从桌面隐藏，启用即恢复） */
     private LinearLayout desktopIconRow() {
         LinearLayout card = makeCard();
@@ -1012,7 +1084,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         }
     }
 
-    /** 全局磨砂玻璃卡片：采样身后模糊背景 + 染色层 + 棱光 + 高光描边
+    /** 全局磨砂玻璃卡片：裁剪窗口内背景位图模糊 + 染色层 + 棱光 + 高光描边
      *  （GlassCardView，磨砂细则滑杆实时生效；详见类注释） */
     private LinearLayout makeCard() {
         GlassCardView card = new GlassCardView(this, this);
@@ -1160,6 +1232,10 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         // ===== 分组：桌面图标 =====
         box.addView(sectionHeader("桌面图标"));
         addCard(box, desktopIconRow());
+
+        // ===== 分组：Hook 自检 =====
+        box.addView(sectionHeader("Hook 自检"));
+        addCard(box, selfCheckCard());
 
         // ===== 分组：更新 =====
         box.addView(sectionHeader("更新"));
@@ -1341,7 +1417,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         glassSliderRow(glassSectionContent, "动效阻尼", "glass_damping", 0, 100, 50, "%",
                 v -> "全局弹簧阻尼：" + v + "%，越低越弹");
         glassSliderRow(glassSectionContent, "模糊强度", "glass_blur", 0, 40, 0, "dp",
-                v -> "背景采样模糊：" + v + "dp");
+                v -> "背景模糊强度：" + v + "dp");
         glassSliderRow(glassSectionContent, "折射高度", "glass_refract_height", 0, 40, 15, "dp",
                 v -> "液态透镜边缘高度：" + v + "dp");
         glassSliderRow(glassSectionContent, "折射幅度", "glass_refract_amount", 0, 60, 20, "dp",
@@ -1356,8 +1432,8 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
                 "在液态透镜边缘显示更明显的色散");
         TextView note = new TextView(this);
         note.setText("【与模板真玻璃的差异】\n"
-                + "· 无 backdrop 实时采样：View 无法录制任意图层，卡片=背景位图按窗口坐标裁剪，底栏=定时截图降采样；\n"
-                + "· 无 lens 折射：棱光厚度/采样层放大为近似，滚动经过玻璃下方的内容不会被折射；\n"
+                + "· 无 backdrop 实时折射：View 无法录制任意图层，卡片=窗口内背景位图按坐标裁剪，底栏=限频截图降分辨率模糊（均非 Compose backdrop 语义）；\n"
+                + "· 无 lens 折射：折射高度→棱光厚度、折射幅度→背景层放大均为自创近似映射（模板中不存在此对应关系），滚动经过下方的内容不会被折射；\n"
                 + "· 弹窗在 Android 12+ 用系统窗口背景模糊（真磨砂），12 以下退化为半透明蒙层。\n"
                 + "【验收】滑动不掉帧 · 深浅色均可读 · 可点区域不受影响。");
         note.setTextSize(11);
@@ -1499,9 +1575,9 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     @Override
     public int glassBackdropHeight() { return backdrop != null ? Math.max(1, backdrop.getHeight()) : 1; }
 
-    /** 玻璃染色滑杆（模板 SettingsScreen「玻璃染色」0..0.35，默认 0.08） */
+    /** 玻璃染色滑杆（0..0.35，默认 0.08）——经 GlassPrefs 收口 */
     private float glassTintAlphaPref() {
-        return clamp(hookPrefs().getInt("glass_tint_alpha", 8) / 100f, 0f, 0.35f);
+        return GlassPrefs.tintAlpha(this);
     }
 
     /** 模板 backdrop 路径染色公式（Glass.kt:181）：glassTintAlpha + opacity × 0.04 */
@@ -1522,22 +1598,22 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     @Override
     public int glassRimColor() { return cardStrokeColor(); }
 
-    /** 折射高度滑杆（模板 0..40dp，默认 15）→ 棱光厚度比例：15dp=1.0 标准，40dp=2.0 厚棱 */
+    /** 折射高度滑杆（0..40dp，默认 15）→ 棱光厚度比例：15dp=1.0 标准，40dp=2.0 厚棱（近似映射） */
     @Override
     public float glassPrismScale() {
-        return clamp(hookPrefs().getInt("glass_refract_height", 15) / 15f, 0f, 2f);
+        return GlassPrefs.clamp(GlassPrefs.prismHeightDp(this) / 15f, 0f, 2f);
     }
 
-    /** 折射幅度滑杆（模板 0..60dp，默认 20）→ 采样层放大（透镜内容偏移的 View 近似） */
+    /** 折射幅度滑杆（0..60dp，默认 20）→ 背景层放大（透镜内容偏移的 View 近似映射） */
     @Override
     public int glassRefractionAmountDp() {
-        return (int) clamp(hookPrefs().getInt("glass_refract_amount", 20), 0, 60);
+        return GlassPrefs.prismAmountDp(this);
     }
 
-    /** 色差折射开关（模板默认开）→ 棱光 RGB 色散 */
+    /** 色差折射开关（默认开）→ 棱光 RGB 色散（近似） */
     @Override
     public boolean glassChromaticEnabled() {
-        return hookPrefs().getBoolean("glass_chromatic", true);
+        return GlassPrefs.chromatic(this);
     }
 
     @Override
@@ -1545,14 +1621,14 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
     @Override
     public int glassBlurDp() {
-        return hookPrefs().getInt("glass_blur", 0);
+        return GlassPrefs.blurDp(this);
     }
 
     @Override
     public Paint glassCardSamplePaint() { return cardSamplePaint; }
 
     private int cardStrokeColor() {
-        int bAlpha = Math.round(clamp(hookPrefs().getInt("glass_border", 20) / 100f, 0f, 0.45f) * 255f);
+        int bAlpha = Math.round(GlassPrefs.borderAlpha(this) * 255f);
         return (bAlpha << 24) | 0xFFFFFF;
     }
 
@@ -1620,13 +1696,16 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         }
     }
 
-    /** 已安装应用数量（Manifest 已加 QUERY_ALL_PACKAGES，API 30+ 才能数到全部） */
+    /** 目标应用已装数量（仅查 17 个目标包：配合 Manifest <queries>，不再需要 QUERY_ALL_PACKAGES） */
     private int installedAppCount() {
-        try {
-            return getPackageManager().getInstalledPackages(0).size();
-        } catch (Throwable t) {
-            return 0;
+        int n = 0;
+        for (String[] t : Main.TARGETS) {
+            try {
+                getPackageManager().getPackageInfo(t[0], 0);
+                n++;
+            } catch (Throwable ignored) {}
         }
+        return n;
     }
 
     private String appVersion() {
@@ -1735,7 +1814,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         about.setPadding((int) (18 * dp), (int) (16 * dp), (int) (18 * dp), (int) (16 * dp));
         String[] infos = {
                 "开源地址", "github.com/yz8023/PureStart",
-                "模块版本", "v15.0.6 (ModKit Edition)",
+                "模块版本", "v" + BuildVersion.VERSION_NAME + " (ModKit Edition)",
                 "Hook 接口", "libxposed API 102（Modern Xposed）",
                 "构建时间", BuildInfo.BUILD_TIME,
         };
@@ -2134,7 +2213,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     /** 重捕底栏身后的内容并降采样（滚动 / 切页时调用） */
     private void refreshBarGlass() {
         if (blurBusy || barWrap.getWidth() == 0 || barWrap.getHeight() == 0) return;
-        if (!hookPrefs().getBoolean("set_liquid_blur", true)) return;   // 关闭时跳过重捕，省 CPU
+        if (!GlassPrefs.liquidBlurEnabled(this)) return;   // 关闭时跳过重捕，省 CPU
         blurBusy = true;
         try {
             int bw = barWrap.getWidth() / 2, bh = barWrap.getHeight() / 2;
@@ -2225,7 +2304,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     /** 在胶囊内绘制身后内容的模糊版 + 白色蒙层（时机：背景之上、图标之下） */
     private void drawBarGlass(Canvas canvas) {
         if (glassChainBg == null) return;
-        if (!hookPrefs().getBoolean("set_liquid_blur", true)) return;   // 液态模糊关闭 → 纯半透明底栏
+        if (!GlassPrefs.liquidBlurEnabled(this)) return;   // 磨砂关闭 → 纯半透明底栏
         int w = barWrap.getWidth(), h = barWrap.getHeight();
         // 尺寸没变就复用缓存的裁剪 Path（动画期间 onDraw 每帧进来，避免每帧 new → GC 抑制）
         if (clipW != w || clipH != h) {

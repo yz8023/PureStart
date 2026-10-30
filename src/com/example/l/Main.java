@@ -1,8 +1,7 @@
 package com.example.l;
 
-import android.app.Activity;
-import android.app.Application;
 import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
@@ -14,17 +13,18 @@ import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
 
-import java.lang.reflect.Method;
-
 /**
  * PureStart (ModKit Edition) — 现代化架构 Xposed 模块入口
  * 全面整合 XiaoCan 净化、通用广告过滤与 DexFinder 自动特征识别
  *
- * v15.0.2 关键修正：
- *  - 开关查询改为「拦截回调触发时懒查询」（此前在 onPackageLoaded 过早调用，
- *    目标进程尚未 attach，Provider 必然拿不到 → 现在回调时应用已就绪）；
- *  - 细分子项开关（开屏/信息流/弹窗/DexFinder）真正接入 Hook 判定；
- *  - 通用引擎升级：启动器安全判定 + 全自动「跳过」点击 + 广告弹窗拦截。
+ * v15.0.7 工程修正（按外部分析报告 P0/P1）：
+ *  - 开关闸门 fail-safe：双通道读取失败时保留上次已知值（last-known），
+ *    完全无缓存时 fail-closed（返回 false）并输出 ERROR 日志；
+ *    降级状态下缩短重试间隔（400ms），瞬时故障可自愈；
+ *  - cfgCache 读写全程同步（Hook 可能运行在多线程）；
+ *  - 通道状态变化即记录日志（不再只记一次）；
+ *  - Hook 自检：安装结果经 Provider 回传设置页（selfcheck 通道）；
+ *  - 版本号唯一来源 = AndroidManifest.xml（BuildVersion.java 由构建生成）。
  */
 public class Main extends XposedModule implements HookGate {
 
@@ -63,11 +63,12 @@ public class Main extends XposedModule implements HookGate {
             { "dexfinder", "sub_dexfinder_" },
     };
 
-    /** 闸门缓存（2s；回调触发时查询，此刻目标应用已 attach，Provider 可达） */
+    /** 闸门缓存（正常 2s；降级 400ms 加速自愈）。读写均持 cfgCache 锁（多线程 Hook 安全）。 */
     private final Bundle cfgCache = new Bundle();
     private long cfgAt = -2000;
     private String cfgPkg;
-    private boolean cfgLogged;
+    private boolean cfgEverLoaded;      // 是否成功加载过（决定降级语义）
+    private String cfgChannel = "none"; // provider | remote | last-known | unknown
 
     public Main() {
         super();
@@ -81,52 +82,139 @@ public class Main extends XposedModule implements HookGate {
             if (app instanceof Context) {
                 resolver = ((Context) app).getContentResolver();
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            Log.w(TAG, "resolver unavailable: " + t);
+        }
         return resolver;
     }
 
     @Override
     public boolean on(String key) {
         String pkg = currentPkg;
+        long ttl = cfgEverLoaded ? 2000 : 400;   // 降级态短 TTL：瞬时 Provider 故障自愈
         long now = SystemClock.uptimeMillis();
-        if (pkg == null || !pkg.equals(cfgPkg) || now - cfgAt > 2000) {
+        if (pkg == null || !pkg.equals(cfgPkg) || now - cfgAt > ttl) {
             cfgAt = now;
             cfgPkg = pkg;
             boolean got = false;
+            String channel = "unknown";
             // ① 首选：跨进程 Provider（设置页实时勾选状态）
             try {
                 ContentResolver r = resolver();
                 if (r != null && pkg != null) {
                     Bundle b = r.call(STATE_URI, "config", pkg, null);
                     if (b != null && b.containsKey("enabled")) {
-                        cfgCache.clear();
-                        cfgCache.putAll(b);
+                        synchronized (cfgCache) {
+                            cfgCache.clear();
+                            cfgCache.putAll(b);
+                        }
                         got = true;
+                        channel = "provider";
                     }
                 }
-            } catch (Throwable ignored) {}
+            } catch (Throwable t) {
+                Log.w(TAG, "gate provider channel failed: " + t);
+            }
             // ② 兜底：框架远程偏好
             if (!got) {
                 try {
                     SharedPreferences sp = getRemotePreferences("settings");
                     if (sp != null) {
-                        cfgCache.clear();
-                        for (String[] sk : SUB_KEYS) {
-                            cfgCache.putBoolean(sk[0], sp.getBoolean(sk[1] + pkg, true));
+                        synchronized (cfgCache) {
+                            cfgCache.clear();
+                            for (String[] sk : SUB_KEYS) {
+                                cfgCache.putBoolean(sk[0], sp.getBoolean(sk[1] + pkg, true));
+                            }
                         }
                         got = true;
+                        channel = "remote";
                     }
-                } catch (Throwable ignored) {}
+                } catch (Throwable t) {
+                    Log.w(TAG, "gate remote-prefs channel failed: " + t);
+                }
             }
-            if (!got) cfgCache.clear();   // 双通道都失败 → 全默认 true（拦截）
-            if (!cfgLogged) {
-                log(Log.INFO, TAG, "gate(" + key + ") provider=" + got
-                        + " enabled=" + cfgCache.getBoolean("enabled", true));
-                cfgLogged = true;
+            // ③ 双通道失败：保留上次已知值（last-known），绝不静默回退全开
+            if (!got) {
+                synchronized (cfgCache) {
+                    if (!cfgCache.isEmpty()) {
+                        channel = "last-known";
+                    }
+                }
+                if ("unknown".equals(channel)) {
+                    log(Log.ERROR, TAG, "gate: no config source and no last-known value for "
+                            + pkg + " — failing CLOSED (hooks disabled) for safety");
+                }
+            }
+            cfgEverLoaded |= got;
+            if (!channel.equals(cfgChannel)) {
+                log(Log.INFO, TAG, "gate(" + key + ") channel=" + channel
+                        + " enabled=" + readGate("enabled", false));
+                cfgChannel = channel;
             }
         }
-        return cfgCache.getBoolean(key, true);
+        // fail-closed：从未加载到任何配置时一律返回 false（用户控制权优先于拦截率）
+        if (!cfgEverLoaded && "unknown".equals(cfgChannel)) return false;
+        return readGate(key, false);
     }
+
+    private boolean readGate(String key, boolean def) {
+        synchronized (cfgCache) {
+            return cfgCache.getBoolean(key, def);
+        }
+    }
+
+    // ==================== Hook 自检（安装结果回传设置页） ====================
+
+    /** 目标进程内的安装结果收集器（每 App 一份，经 Provider 回传） */
+    public interface Reporter {
+        void ok(String what);
+        void miss(String what);                       // 可选目标不存在（预期内）
+        void fail(String what, Throwable t);          // 安装失败（必须留痕）
+        void republish();                             // 延迟安装完成后重报
+    }
+
+    private static class InstallReport implements Reporter {
+        private final String pkg;
+        private final ContentResolver resolver;
+        private int ok, miss;
+        private final StringBuilder fails = new StringBuilder();
+
+        InstallReport(String pkg, ContentResolver resolver) {
+            this.pkg = pkg;
+            this.resolver = resolver;
+        }
+
+        @Override public void ok(String what) { ok++; }
+
+        @Override public void miss(String what) {
+            miss++;
+            Log.i(TAG, "[" + pkg + "] optional target absent: " + what);
+        }
+
+        @Override public void fail(String what, Throwable t) {
+            fails.append(what).append(" (").append(t.getClass().getSimpleName()).append("); ");
+            Log.w(TAG, "[" + pkg + "] hook install FAILED: " + what + " — " + t);
+        }
+
+        @Override public void republish() {
+            try {
+                ContentValues cv = new ContentValues();
+                cv.put("pkg", pkg);
+                cv.put("ok", ok);
+                cv.put("miss", miss);
+                cv.put("fails", fails.length() > 300 ? fails.substring(0, 300) : fails.toString());
+                cv.put("version", BuildVersion.VERSION_NAME);
+                cv.put("at", System.currentTimeMillis());
+                if (resolver != null) {
+                    resolver.insert(Uri.parse("content://com.example.l.hookstate/selfcheck"), cv);
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "selfcheck report dropped: " + t);
+            }
+        }
+    }
+
+    private InstallReport report;
 
     @Override
     public void onPackageLoaded(XposedModuleInterface.PackageLoadedParam param) {
@@ -136,27 +224,32 @@ public class Main extends XposedModule implements HookGate {
         for (String[] t : TARGETS) {
             if (!t[0].equals(pkg)) continue;
             currentPkg = pkg;
-            log(Log.INFO, TAG, "Loaded into " + pkg + " (module v15.0.6, API 102)");
+            report = new InstallReport(pkg, resolver());
+            log(Log.INFO, TAG, "Loaded into " + pkg + " (module v" + BuildVersion.VERSION_NAME
+                    + ", API 102)");
 
             if ("com.realtech.xiaocan".equals(pkg)) {
                 // 小蚕为加固壳应用：先尝试直接安装；类未解密则挂三个生命周期点延迟重试
                 try {
                     if (XiaoCanHook.canLoadTargetClasses(cl)) {
-                        XiaoCanHook.install(this, cl, this);
+                        XiaoCanHook.install(this, cl, this, report);
                     } else {
                         log(Log.INFO, TAG, "XiaoCan shelled, deferring install to lifecycle");
                     }
-                    XiaoCanHook.hookLifecycleForDeferredInstall(this);
+                    XiaoCanHook.hookLifecycleForDeferredInstall(this, report);
                 } catch (Throwable e) {
+                    report.fail("XiaoCanHook.install", e);
                     log(Log.ERROR, TAG, "XiaoCan hook failed", e);
                 }
             } else {
                 try {
-                    UniversalAdHook.install(this, cl, pkg, this);
+                    UniversalAdHook.install(this, cl, pkg, this, report);
                 } catch (Throwable e) {
+                    report.fail("UniversalAdHook.install", e);
                     log(Log.ERROR, TAG, "UniversalAdHook failed for " + pkg, e);
                 }
             }
+            report.republish();
             return;
         }
     }
@@ -172,13 +265,15 @@ public class Main extends XposedModule implements HookGate {
         currentPkg = pkg;
         ClassLoader cl = param.getClassLoader();
         log(Log.INFO, TAG, "Package ready: " + pkg);
+        if (report == null) report = new InstallReport(pkg, resolver());
         try {
             if (XiaoCanHook.canLoadTargetClasses(cl)) {
-                XiaoCanHook.install(this, cl, this);
+                XiaoCanHook.install(this, cl, this, report);
             } else {
-                XiaoCanHook.hookLifecycleForDeferredInstall(this);
+                XiaoCanHook.hookLifecycleForDeferredInstall(this, report);
             }
         } catch (Throwable e) {
+            report.fail("XiaoCanHook.ready-install", e);
             log(Log.ERROR, TAG, "XiaoCan ready-install failed", e);
         }
     }

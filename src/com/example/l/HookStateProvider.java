@@ -65,8 +65,30 @@ public class HookStateProvider extends ContentProvider {
         return null;
     }
 
+    /**
+     * Hook 自检回传通道（目标应用进程 → 设置页）。
+     * Main.InstallReport 在安装完成后 insert 一行 {pkg, ok, miss, fails, version, at}，
+     * 持久化到 selfcheck 偏好，设置页「Hook 自检」分组读取展示。
+     * 注意：exported Provider 无鉴权，理论上任意 App 可伪造上报（仅影响展示，不影响开关），已在 README 注明取舍。
+     */
     @Override
     public Uri insert(Uri uri, ContentValues values) {
+        try {
+            if (values == null) return null;
+            String pkg = values.getAsString("pkg");
+            if (pkg == null) return null;
+            Context c = getContext();
+            if (c == null) return null;
+            String row = values.getAsInteger("ok") + "|"
+                    + values.getAsInteger("miss") + "|"
+                    + values.getAsString("fails") + "|"
+                    + values.getAsString("version") + "|"
+                    + values.getAsLong("at");
+            c.getSharedPreferences("selfcheck", Context.MODE_PRIVATE)
+                    .edit().putString(pkg, row).apply();
+        } catch (Throwable t) {
+            android.util.Log.w("ModKit", "selfcheck insert failed: " + t);
+        }
         return null;
     }
 
