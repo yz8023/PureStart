@@ -18,8 +18,8 @@ import android.widget.RadioGroup;
 import android.widget.TextView;
 
 /**
- * 外观点击弹窗设置界面 —— 进行适配应用主题液态玻璃 (ThemeDialog)
- * 允许用户选择：跟随系统 / 浅色液态玻璃 / 深色液态玻璃 / 极光蓝液态玻璃
+ * 外观点击弹窗设置界面 —— 适配应用主题磨砂玻璃 (ThemeDialog)
+ * 允许用户选择：跟随系统 / 浅色磨砂玻璃 / 深色磨砂玻璃 / 极光流体磨砂玻璃
  */
 public final class ThemeDialog {
 
@@ -54,7 +54,7 @@ public final class ThemeDialog {
         card.addView(titleView);
 
         TextView subView = new TextView(context);
-        subView.setText("选择适合您设备界面的液态玻璃高光与通透材质");
+        subView.setText("选择适合您设备界面的磨砂玻璃高光与通透材质");
         subView.setTextSize(12);
         subView.setTextColor(isDark ? 0xFFA1A1AA : 0xFF71717A);
         subView.setPadding(0, (int) (4 * density), 0, dp16);
@@ -65,9 +65,9 @@ public final class ThemeDialog {
 
         final String[] options = {
                 "跟随系统 (自适应浅色/深色玻璃)",
-                "浅色液态玻璃 (高透乳白微光)",
-                "深色液态玻璃 (深空磨砂玻璃)",
-                "极光流体玻璃 (灵动蓝高透流光)"
+                "浅色磨砂玻璃 (高透乳白微光)",
+                "深色磨砂玻璃 (深空磨砂)",
+                "极光流体磨砂玻璃 (灵动蓝高透流光)"
         };
 
         for (int i = 0; i < options.length; i++) {

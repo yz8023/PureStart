@@ -87,7 +87,7 @@ public final class AppDetailDialog {
         scroll.addView(list, new LinearLayout.LayoutParams(-1, (int) (240 * density)));
         card.addView(scroll);
 
-        // 底部关闭按钮（液态高光胶囊）
+        // 底部关闭按钮（高光胶囊）
         TextView closeBtn = new TextView(context);
         closeBtn.setText("完成并保存");
         closeBtn.setTextSize(14);

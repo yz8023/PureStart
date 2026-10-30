@@ -271,7 +271,7 @@ final class AppsPage {
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
         }
-        // 点击卡片进入细分选项液态玻璃弹窗
+        // 点击卡片进入细分选项磨砂玻璃（View 近似）弹窗
         card.setClickable(true);
         card.setFocusable(true);
         card.setOnClickListener(v -> {

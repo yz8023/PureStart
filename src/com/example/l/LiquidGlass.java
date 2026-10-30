@@ -61,7 +61,7 @@ public final class LiquidGlass {
     }
 
     /**
-     * 生成液态玻璃 Dock 栏背景
+     * 生成磨砂玻璃（View 近似）Dock 栏背景
      */
     public static GradientDrawable glassDock(Context context, boolean isDark, float cornerRadiusDp) {
         float density = context.getResources().getDisplayMetrics().density;
@@ -80,7 +80,7 @@ public final class LiquidGlass {
     }
 
     /**
-     * 生成液态玻璃高光胶囊按钮/标签
+     * 生成磨砂玻璃（View 近似）高光胶囊按钮/标签
      */
     public static GradientDrawable glassPill(Context context, int bgColor, int strokeColor) {
         float density = context.getResources().getDisplayMetrics().density;

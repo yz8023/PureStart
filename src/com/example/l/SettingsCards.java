@@ -188,9 +188,9 @@ final class SettingsCards {
         glassSliderRow(glassSectionContent, "模糊强度", Prefs.KEY_GLASS_BLUR, 0, 40, 0, "dp",
                 v -> "背景模糊强度：" + v + "dp");
         glassSliderRow(glassSectionContent, "折射高度", Prefs.KEY_GLASS_REFRACT_HEIGHT, 0, 40, 15, "dp",
-                v -> "液态透镜边缘高度：" + v + "dp");
+                v -> "折射棱光厚度（近似映射）：" + v + "dp");
         glassSliderRow(glassSectionContent, "折射幅度", Prefs.KEY_GLASS_REFRACT_AMOUNT, 0, 60, 20, "dp",
-                v -> "壁纸内容偏移幅度：" + v + "dp");
+                v -> "背景层放大幅度（近似映射）：" + v + "dp");
         glassSliderRow(glassSectionContent, "玻璃染色", Prefs.KEY_GLASS_TINT_ALPHA, 0, 35, 8, "%",
                 v -> "白色玻璃涂层：" + v + "%");
         glassSliderRow(glassSectionContent, "高光边框", Prefs.KEY_GLASS_BORDER, 0, 45, 20, "%",
@@ -198,9 +198,9 @@ final class SettingsCards {
         glassSwitchRow(glassSectionContent, "增强色彩层次", Prefs.KEY_GLASS_VIBRANCY,
                 "提升玻璃后的壁纸色彩通透感");
         glassSwitchRow(glassSectionContent, "色差折射", Prefs.KEY_GLASS_CHROMATIC,
-                "在液态透镜边缘显示更明显的色散");
+                "在棱光边缘显示更明显的色散（近似）");
         TextView note = new TextView(a);
-        note.setText("【与模板真玻璃的差异】\n"
+        note.setText("【与模板玻璃的差异】\n"
                 + "· 无 backdrop 实时折射：View 无法录制任意图层，卡片=窗口内背景位图按坐标裁剪，底栏=限频截图降分辨率模糊（均非 Compose backdrop 语义）；\n"
                 + "· 无 lens 折射：折射高度→棱光厚度、折射幅度→背景层放大均为自创近似映射（模板中不存在此对应关系），滚动经过下方的内容不会被折射；\n"
                 + "· 弹窗在 Android 12+ 用系统窗口背景模糊（真磨砂），12 以下退化为半透明蒙层。\n"
@@ -310,7 +310,7 @@ final class SettingsCards {
     }
 
     private LinearLayout appearanceRow() {
-        final String[] names = {"跟随系统", "浅色液态玻璃", "深色液态玻璃", "极光流体玻璃"};
+        final String[] names = {"跟随系统", "浅色磨砂玻璃", "深色磨砂玻璃", "极光流体磨砂玻璃"};
         int cur = Prefs.themeMode(a);
         String sub = names[cur >= 0 && cur < names.length ? cur : 0];
         if (cur == 0) sub += a.darkMode ? "（当前深色）" : "（当前浅色）";

@@ -21,7 +21,7 @@ import android.view.animation.OvershootInterpolator;
 /**
  * 移植自原版 PureStart 的主页盾牌图标 (HoldShieldView)：
  * 支持长按 1 秒触发全开/恢复广告拦截（带圆环环绕动效与振动反馈）；
- * 兼容纯点击提示与液态玻璃色彩高光。
+ * 兼容纯点击提示与磨砂柔光色彩高光。
  */
 public final class HoldShieldView extends View {
     public interface Listener {
@@ -188,7 +188,7 @@ public final class HoldShieldView extends View {
 
         arc.set(cx - radius, cy - radius, cx + radius, cy + radius);
 
-        // 液态玻璃拟态渐变底色
+        // 磨砂柔光渐变底色（View 近似）
         if (active) {
             fill.setShader(new LinearGradient(cx, cy - radius, cx, cy + radius,
                     0xFF3B82F6, 0xFF1D4ED8, Shader.TileMode.CLAMP));
@@ -201,7 +201,7 @@ public final class HoldShieldView extends View {
 
         canvas.drawCircle(cx, cy, radius, fill);
 
-        // 长按进度圆环（液态光环）
+        // 长按进度圆环（柔光光环）
         if (progress > 0f) {
             ring.setColor(active ? 0xFF60A5FA : 0xFF3B82F6);
             canvas.drawArc(arc, -90f, progress * 360f, false, ring);

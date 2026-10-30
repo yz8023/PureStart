@@ -17,7 +17,7 @@ import android.widget.LinearLayout;
  *  - 模糊强度 glassBlurRadiusDp      → 背景位图的磨砂档位
  *  - 折射高度 glassRefractionHeightDp → 边缘棱光厚度（透镜边缘高度的 View 近似）
  *  - 折射幅度 glassRefractionAmountDp → 背景层放大（自创近似映射，非模板行为）
- *  - 玻璃染色 glassTintAlpha          → 染色层（Glass.kt: tintAlpha + opacity×0.04）
+ *  - 玻璃染色 glassTintAlpha          → 染色层（真 1:1：ui 模板 Glass.kt:191）
  *  - 高光边框 glassBorderAlpha        → 1dp 镜面棱
  *  - 色差折射 glassChromaticAberration→ 棱光 RGB 色散（View 近似）
  *
@@ -102,7 +102,7 @@ public class GlassCardView extends LinearLayout {
                 dst.set((w - gw) / 2f, (h - gh) / 2f, (w + gw) / 2f, (h + gh) / 2f);
                 c.drawBitmap(bmp, src, dst, host.glassCardSamplePaint());
             }
-            // ② 染色层（模板 backdrop 路径公式：glassTintAlpha + opacity × 0.04）
+            // ② 染色层（真 1:1 公式，ui 模板 Glass.kt:191：tintAlpha + opacity × 0.04）
             int tintA = Math.round(host.glassCardTintAlpha() * 255f);
             c.drawColor((tintA << 24) | (host.glassSurfaceColor() & 0xFFFFFF));
         } else {

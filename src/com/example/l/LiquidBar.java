@@ -18,11 +18,11 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
- * 液态玻璃底栏（P1-2 自 SettingsActivity 拆出，行为不变）。
+ * 磨砂玻璃底栏（View 近似；P1-2 自 SettingsActivity 拆出，行为不变）。
  *
- * 完全对齐模板 LiquidBottomTabs：64dp 胶囊容器 + 4dp 内衬 + 56dp 活动胶囊
- * （tint/高光棱/内阴影/折射近似）+ 四 Tab；阻尼拖拽手势（按压/槽位空间拖拽/
- * 松手吸附）全部由五组弹簧驱动，Choreographer 逐帧渲染。
+ * 版式取值借鉴模板 LiquidBottomTabs（64dp 胶囊容器 + 4dp 内衬 + 56dp 活动胶囊），
+ * 渲染为 View 近似（tint/高光棱/内阴影/折射近似，非模板 backdrop 语义）；
+ * 阻尼拖拽手势（按压/槽位空间拖拽/松手吸附）由五组弹簧驱动，Choreographer 逐帧渲染。
  * 页面切换动效（animatePageSwitch）与玻璃捕获锚（barWrap 字段）留 activity。
  */
 final class LiquidBar {
@@ -170,7 +170,7 @@ final class LiquidBar {
                         if (dockPressed) {
                             if (Math.abs(ev.getX() - dockDownX) > 2 * a.dp) dockDragging = true;
                             // 槽位空间浮点驱动：dx → dx / tabWidth（模板 F08 规则，禁止像素坐标反推）
-                            // 任意起点、全程 1:1 跟手（点击即定位 + 拖动即跟随）
+                            // 任意起点、全程跟手（点击即定位 + 拖动即跟随）
                             slotSpring.value = SettingsActivity.clamp(slotSpring.value + dx / tabWidthPx,
                                     0f, tabItems.length - 1f);
                             slotSpring.target = slotSpring.value;

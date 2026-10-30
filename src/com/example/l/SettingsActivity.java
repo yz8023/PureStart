@@ -111,7 +111,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     final AppsPage appsPage = new AppsPage(this);      // 「应用」页组装（P1-2 拆出）
     final ExtensionPage extPage = new ExtensionPage(this); // 「拓展」页组装（P1-2 拆出）
     final SettingsCards settingsPage = new SettingsCards(this); // 「设置」页组装（P1-2 拆出）
-    final LiquidBar liquidBar = new LiquidBar(this);  // 液态玻璃底栏（P1-2 拆出）
+    final LiquidBar liquidBar = new LiquidBar(this);  // 磨砂玻璃底栏·View 近似（P1-2 拆出）
     float dp;
 
     /** 解析外观模式（跟随系统/浅色/深色）并赋值主题色；必须在 onCreate 最先调用 */
@@ -251,7 +251,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
 
 
-        // ---- 液态玻璃底栏（P1-2 起由 LiquidBar 组装）----
+        // ---- 磨砂玻璃底栏（View 近似；P1-2 起由 LiquidBar 组装）----
         liquidBar.build(root);
 
         setContentView(root);
@@ -495,7 +495,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
             sw.setChecked(hookPrefs().getBoolean(switchKey, !hookKey));
             sw.setOnCheckedChangeListener((v, checked) -> {
                 hookPrefs().edit().putBoolean(switchKey, checked).apply();
-                barWrap.invalidate();      // 立即重绘（液态模糊开关即时生效）
+                barWrap.invalidate();      // 立即重绘（磨砂模糊开关即时生效）
                 requestGlassRefresh();
                 updateScopeBadge();        // 应用角标开关即时生效（其余开关调用无副作用）
             });
@@ -546,13 +546,13 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         return Prefs.tintAlpha(this);
     }
 
-    /** 模板 backdrop 路径染色公式（Glass.kt:181）：glassTintAlpha + opacity × 0.04 */
+    /** 染色公式（真 1:1 照搬 ui 模板 Glass.kt:191）：glassTintAlpha + opacity × 0.04 */
     @Override
     public float glassCardTintAlpha() {
         return clamp(glassTintAlphaPref() + glassOpacity() * 0.04f, 0f, 0.45f);
     }
 
-    /** 模板退化路径公式（Glass.kt:222）：0.26 + glassTintAlpha + opacity × 0.18 */
+    /** 退化公式（真 1:1 照搬 ui 模板 Glass.kt:232）：0.26 + glassTintAlpha + opacity × 0.18 */
     @Override
     public float glassFallbackAlpha() {
         return clamp(0.26f + glassTintAlphaPref() + glassOpacity() * 0.18f, 0f, 0.72f);
@@ -615,7 +615,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         }
     }
 
-    /** 外观行：点击弹出液态玻璃质感弹窗，副标题显示当前选择 */
+    /** 外观行：点击弹出磨砂玻璃（View 近似）质感弹窗，副标题显示当前选择 */
     /** 作用域应用数：读 APK 内 META-INF/xposed/scope.list，逐行统计（空行与 # 注释忽略）
      *  ⚠ LSPosed 管理器里动态勾选的存在其私有数据库，App 进程读不到；这里是模块声明的静态作用域 */
     int scopeAppCount() {
