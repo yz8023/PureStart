@@ -205,7 +205,7 @@ public class Main extends XposedModule implements HookGate {
 
         @Override public void fail(String what, Throwable t) {
             fails.append(what).append(" (").append(t.getClass().getSimpleName()).append("); ");
-            Log.w(TAG, "[" + pkg + "] hook install FAILED: " + what + " — " + t);
+            Log.e(TAG, "[" + pkg + "] hook install FAILED: " + what + " — " + t);
         }
 
         @Override public void republish() {
@@ -241,14 +241,15 @@ public class Main extends XposedModule implements HookGate {
                     + ", API 102)");
 
             if ("com.realtech.xiaocan".equals(pkg)) {
-                // 小蚕为加固壳应用：先尝试直接安装；类未解密则挂三个生命周期点延迟重试
+                // 小蚕为加固壳应用：先挂三个生命周期重试点（内部设 reporter，主类未命中有留痕），
+                // 再尝试直接安装；类未解密则由生命周期点在壳解密后补装
                 try {
+                    XiaoCanHook.hookLifecycleForDeferredInstall(this, report);
                     if (XiaoCanHook.canLoadTargetClasses(cl)) {
                         XiaoCanHook.install(this, cl, this, report);
                     } else {
                         log(Log.INFO, TAG, "XiaoCan shelled, deferring install to lifecycle");
                     }
-                    XiaoCanHook.hookLifecycleForDeferredInstall(this, report);
                 } catch (Throwable e) {
                     report.fail("XiaoCanHook.install", e);
                     log(Log.ERROR, TAG, "XiaoCan hook failed", e);

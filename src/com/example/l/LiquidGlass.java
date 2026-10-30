@@ -30,7 +30,7 @@ public final class LiquidGlass {
             }
             w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             w.setDimAmount(0.35f);
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}   // 纯防御：调暗标记失败仅损失背景压暗效果，弹窗功能不受影响
     }
 
     /**

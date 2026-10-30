@@ -53,10 +53,10 @@ public final class XiaoCanHook {
         Log.i(TAG, "optional target absent: " + t);
     }
 
-    /** 安装失败——必须留痕（类名 + 异常） */
+    /** 安装失败——必须留痕（类名 + 异常，ERROR 级） */
     private static void repFail(String what, Throwable t) {
         if (reporter != null) reporter.fail(what, t);
-        Log.w(TAG, "hook install FAILED: " + what + " — " + t);
+        Log.e(TAG, "hook install FAILED: " + what + " — " + t);
     }
 
     private static void repOk(String what) {
@@ -65,6 +65,20 @@ public final class XiaoCanHook {
 
     private XiaoCanHook() {}
 
+    /** 主类未命中每进程只留痕一次（生命周期点会反复探测，避免刷屏） */
+    private static final AtomicBoolean MAIN_MISS_NOTED = new AtomicBoolean(false);
+
+    /** 主类未命中：P1-3 安装路径不许静默——ERROR 日志 + 自检「未命中」+ 立即回传 */
+    private static void noteMainMiss(Throwable cause) {
+        if (MAIN_MISS_NOTED.compareAndSet(false, true)) {
+            Log.e(TAG, "主类未命中: " + MAIN_CLASS + "（壳未解密或版本变更/类名失配）— " + cause);
+            if (reporter != null) {
+                reporter.miss("主类:" + MAIN_CLASS);
+                reporter.republish();
+            }
+        }
+    }
+
     /** 壳解密检测：宿主业务类是否已可加载（原模块同款判据） */
     public static boolean canLoadTargetClasses(ClassLoader cl) {
         if (cl == null) return false;
@@ -72,6 +86,7 @@ public final class XiaoCanHook {
             Class.forName(MAIN_CLASS, false, cl);
             return true;
         } catch (Throwable e) {
+            noteMainMiss(e);
             return false;
         }
     }
@@ -91,7 +106,7 @@ public final class XiaoCanHook {
                 return result;
             });
         } catch (Throwable t) {
-            Log.w(TAG, "hook attachBaseContext failed: " + t);
+            Log.e(TAG, "hook attachBaseContext failed: " + t);
         }
         try {
             Method onCreate = Application.class.getDeclaredMethod("onCreate");
@@ -104,7 +119,7 @@ public final class XiaoCanHook {
                 return result;
             });
         } catch (Throwable t) {
-            Log.w(TAG, "hook Application.onCreate failed: " + t);
+            Log.e(TAG, "hook Application.onCreate failed: " + t);
         }
         try {
             Method actOnCreate = Activity.class.getDeclaredMethod("onCreate", Bundle.class);
@@ -116,7 +131,7 @@ public final class XiaoCanHook {
                 return chain.proceed();
             });
         } catch (Throwable t) {
-            Log.w(TAG, "hook Activity.onCreate failed: " + t);
+            Log.e(TAG, "hook Activity.onCreate failed: " + t);
         }
     }
 
@@ -632,7 +647,7 @@ public final class XiaoCanHook {
                     || text.contains("大额出行福利券")
                     || text.contains("跳转领取大额福利");
         } catch (Throwable t) {
-            return false;
+            return false;   // 纯防御：弹窗文本抓取失败按无匹配处理（不拦截该弹窗，绝不误关正常弹窗）
         }
     }
 

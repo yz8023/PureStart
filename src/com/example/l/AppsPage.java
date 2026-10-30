@@ -138,6 +138,7 @@ final class AppsPage {
                             label = pi.applicationInfo.loadLabel(pm).toString();
                             version = pi.versionName == null ? "—" : pi.versionName;
                         } catch (Throwable ignored) {
+                            // 纯防御：包未安装（NNF 属预期）→ 按未安装条目展示，不是错误
                         }
                         list.add(new SettingsActivity.AppEntry(line, label, version, installed));
                     }
@@ -147,6 +148,7 @@ final class AppsPage {
                 // 读不到就按空列表处理
             } finally {
                 if (zf != null) try { zf.close(); } catch (Throwable ignored) {
+                    // 纯防御：zip 关闭失败无资源可泄（句柄随进程回收），无需留痕
                 }
             }
             // 已安装在前，名称排序

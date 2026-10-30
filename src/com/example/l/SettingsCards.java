@@ -222,7 +222,7 @@ final class SettingsCards {
             android.transition.TransitionManager.beginDelayedTransition(
                     (ViewGroup) glassSectionContent.getParent(),
                     new android.transition.AutoTransition().setDuration(240));
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}   // 纯防御：无过渡动画时直接切换（仅视觉降级，折叠功能不受影响）
         glassSectionContent.setVisibility(expand ? View.VISIBLE : View.GONE);
         if (glassChevron != null) {
             glassChevron.animate().rotation(expand ? 180f : 0f).setDuration(240).start();

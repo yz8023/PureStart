@@ -192,7 +192,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         int mode = 0;
         try {
             mode = Prefs.localeMode(base);
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}   // 纯防御：读不到语言偏好按默认（跟随系统）处理
         if (mode == 1) {
             android.content.res.Configuration cfg = new android.content.res.Configuration();
             cfg.setLocale(java.util.Locale.SIMPLIFIED_CHINESE);
@@ -637,6 +637,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
                     pm.getPackageInfo(line, 0);
                     n++;
                 } catch (Throwable ignored) {
+                    // 纯防御：包未安装不计入作用域数（NNF 属预期）
                 }
             }
             r.close();
@@ -644,7 +645,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         } catch (Throwable t) {
             return 0;
         } finally {
-            if (zf != null) try { zf.close(); } catch (Throwable ignored) {}
+            if (zf != null) try { zf.close(); } catch (Throwable ignored) {}   // 纯防御：zip 关闭失败无需留痕
         }
     }
 
@@ -655,7 +656,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
             try {
                 getPackageManager().getPackageInfo(t[0], 0);
                 n++;
-            } catch (Throwable ignored) {}
+            } catch (Throwable ignored) {}   // 纯防御：包未安装不计入已装数（NNF 属预期）
         }
         return n;
     }

@@ -149,7 +149,7 @@ public final class UniversalAdHook {
                     && i.hasCategory(Intent.CATEGORY_LAUNCHER)) {
                 return true;
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}   // 纯防御：取 Intent 元数据失败按非启动器处理（宁可漏关广告页，不误关启动器）
         return false;
     }
 
@@ -174,7 +174,7 @@ public final class UniversalAdHook {
                         }
                         // ② 按钮没点到（可能倒计时未结束/不可点）：DexFinder 特征兜底
                         tryDexFinderSkip(root);
-                    } catch (Throwable ignored) {}
+                    } catch (Throwable ignored) {}   // 纯防御：跳过扫描尽力而为，失败仅多显示一帧开屏
                 }
             }, delay);
         }
@@ -216,7 +216,7 @@ public final class UniversalAdHook {
                     if (l.contains("skip") || l.contains("jump")) return true;
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}   // 纯防御：资源名解析失败按非跳过按钮处理（跳过判定宁缺勿滥）
         return false;
     }
 
@@ -253,7 +253,7 @@ public final class UniversalAdHook {
                     return;
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}   // 纯防御：反射触发 skip 尽力而为，失败退回普通点击路径
     }
 
     // ------------------------------------------------------------------

@@ -232,7 +232,7 @@ final class HomePage {
         return scroll;
     }
 
-    /** Hook 自检卡：读取目标应用进程经 Provider 回传的安装结果（未上报/已装/失败明细） */
+    /** Hook 自检卡：17 目标三态（类命中/未命中/未安装）+ 失败明细（Provider 回传，P1-3） */
     LinearLayout selfCheckCard() {
         LinearLayout card = a.makeCard();
         card.setOrientation(LinearLayout.VERTICAL);
@@ -273,11 +273,24 @@ final class HomePage {
             TextView line = new TextView(a);
             line.setTextSize(12);
             line.setPadding(0, (int) (4 * a.dp), 0, (int) (4 * a.dp));
-            if (row == null) {
-                line.setText(t[1].split(" · ")[0] + "：未上报（打开一次目标应用后自动回传）");
+            String name = t[1].split(" · ")[0];
+            // 三态之一：未安装（PackageManager 实查，<queries> 已声明可见）
+            boolean installed = false;
+            try {
+                a.getPackageManager().getPackageInfo(t[0], 0);
+                installed = true;
+            } catch (Throwable e) {
+                // 纯防御：NameNotFoundException 即未安装，属自检三态的预期分支
+            }
+            if (!installed) {
+                line.setText(name + "：未安装");
+                line.setTextColor(a.HINT);
+            } else if (row == null) {
+                line.setText(name + "：未上报（打开一次目标应用后自动回传）");
                 line.setTextColor(a.SUB);
             } else {
                 String[] p = row.split("\\|", -1);   // ok|miss|fails|version|at
+                // 纯防御：自检行字段缺失/非数字按 0 处理（兼容旧版数据），无需留痕
                 int ok = 0, miss = 0;
                 try { ok = Integer.parseInt(p[0]); } catch (Throwable ignored) {}
                 try { miss = Integer.parseInt(p[1]); } catch (Throwable ignored) {}
@@ -286,13 +299,19 @@ final class HomePage {
                 long at = 0L;
                 try { at = Long.parseLong(p.length > 4 ? p[4] : "0"); } catch (Throwable ignored) {}
                 StringBuilder sb = new StringBuilder();
-                sb.append(t[1].split(" · ")[0]).append("：已装 ").append(ok).append(" 项");
-                if (miss > 0) sb.append(" · 缺 ").append(miss);
+                if (ok > 0) {
+                    // 三态之二：类命中（至少一路 hook 已装上）
+                    sb.append(name).append("：类命中 · 已装 ").append(ok).append(" 项");
+                    if (miss > 0) sb.append(" · 缺 ").append(miss);
+                } else {
+                    // 三态之三：未命中（进程在跑但一路都没装上：主类失配/框架钩子全部失败）
+                    sb.append(name).append("：未命中（主类或框架钩子未装上，详见日志）");
+                }
                 if (fails != null && !fails.isEmpty()) {
                     sb.append(" · 失败: ").append(fails, 0, Math.min(fails.length(), 80));
                     line.setTextColor(a.BADGE_RED);
                 } else {
-                    line.setTextColor(ok > 0 ? a.STATUS_GREEN : a.SUB);
+                    line.setTextColor(ok > 0 ? a.STATUS_GREEN : a.BADGE_RED);
                 }
                 sb.append("\n").append("v").append(ver).append(" · ")
                         .append(at > 0 ? tf.format(new java.util.Date(at)) : "—");
