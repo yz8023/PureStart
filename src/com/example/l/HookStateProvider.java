@@ -30,28 +30,18 @@ public class HookStateProvider extends ContentProvider {
     public Bundle call(String method, String arg, Bundle extras) {
         Bundle b = new Bundle();
         if (arg == null) return b;
+        Context ctx = getContext();
         if ("enabled".equals(method)) {
-            b.putBoolean("v", readPref("hook_" + arg, false));
+            b.putBoolean("v", ctx != null && Prefs.hookEnabled(ctx, arg));
         } else if ("config".equals(method)) {
-            // 细分子项开关一并返回（Hook 侧 2s 缓存，回调触发时查询）
-            b.putBoolean("enabled",   readPref("hook_" + arg, false));
-            b.putBoolean("splash",    readPref("sub_splash_" + arg, false));
-            b.putBoolean("feed",      readPref("sub_feed_" + arg, false));
-            b.putBoolean("popup",     readPref("sub_popup_" + arg, false));
-            b.putBoolean("dexfinder", readPref("sub_dexfinder_" + arg, false));
+            // 细分子项开关一并返回（Hook 侧 2s 缓存，回调触发时查询；未设置 = 不动作）
+            b.putBoolean("enabled",   ctx != null && Prefs.hookEnabled(ctx, arg));
+            b.putBoolean("splash",    ctx != null && Prefs.subEnabled(ctx, Prefs.PREFIX_SUB_SPLASH, arg));
+            b.putBoolean("feed",      ctx != null && Prefs.subEnabled(ctx, Prefs.PREFIX_SUB_FEED, arg));
+            b.putBoolean("popup",     ctx != null && Prefs.subEnabled(ctx, Prefs.PREFIX_SUB_POPUP, arg));
+            b.putBoolean("dexfinder", ctx != null && Prefs.subEnabled(ctx, Prefs.PREFIX_SUB_DEXFINDER, arg));
         }
         return b;
-    }
-
-    private boolean readPref(String key, boolean def) {
-        try {
-            Context c = getContext();
-            if (c != null) {
-                return c.getSharedPreferences("settings", Context.MODE_PRIVATE)
-                        .getBoolean(key, def);
-            }
-        } catch (Throwable ignored) {}
-        return def;
     }
 
     @Override
@@ -84,8 +74,7 @@ public class HookStateProvider extends ContentProvider {
                     + values.getAsString("fails") + "|"
                     + values.getAsString("version") + "|"
                     + values.getAsLong("at");
-            c.getSharedPreferences("selfcheck", Context.MODE_PRIVATE)
-                    .edit().putString(pkg, row).apply();
+            Prefs.writeSelfCheck(c, pkg, row);
         } catch (Throwable t) {
             android.util.Log.w("ModKit", "selfcheck insert failed: " + t);
         }

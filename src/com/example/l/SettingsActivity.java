@@ -209,7 +209,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
     /** 解析外观模式（跟随系统/浅色/深色）并赋值主题色；必须在 onCreate 最先调用 */
     private void applyTheme() {
-        int mode = hookPrefs().getInt("theme_mode", 0);
+        int mode = Prefs.themeMode(this);
         darkMode = mode == 2 || (mode == 0
                 && (getResources().getConfiguration().uiMode
                         & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
@@ -284,8 +284,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         // 语言设置（跟随系统 / 简体中文）：配置上下文包一层 locale
         int mode = 0;
         try {
-            mode = base.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
-                    .getInt("locale_mode", 0);
+            mode = Prefs.localeMode(base);
         } catch (Throwable ignored) {}
         if (mode == 1) {
             android.content.res.Configuration cfg = new android.content.res.Configuration();
@@ -698,17 +697,17 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     // ==== 偏好读取统一经 GlassPrefs（单一事实来源，不再散落各处直读键名） ====
 
     private float glassOpacity() {
-        return GlassPrefs.opacity(this);
+        return Prefs.opacity(this);
     }
 
     /** 模糊强度 dp → 5×5 偏移采样间距；0 = 清晰通透（免 25 抽头） */
     private int fgBlurStep() {
-        return (int) GlassPrefs.clamp(Math.round(GlassPrefs.blurDp(this) / 4f), 0, 10);
+        return (int) Prefs.clamp(Math.round(Prefs.blurDp(this) / 4f), 0, 10);
     }
 
     /** 玻璃细则：动效阻尼 → 全部弹簧 DampedRatio 缩放（模板 运动.kt 公式） */
     private void applyMotionTuning() {
-        float d = GlassPrefs.damping(this);
+        float d = Prefs.damping(this);
         slotSpring.dampingRatio = dampedRatio(1f, d);
         pressSpring.dampingRatio = dampedRatio(1f, d);
         velSpring.dampingRatio = dampedRatio(0.5f, d);
@@ -724,7 +723,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     /** 鲜艳增强（模板 vibrancy）：采样背景饱和度 +18% */
     private void applyVibrancy() {
         ColorMatrixColorFilter cf = null;
-        if (GlassPrefs.vibrancy(this)) {
+        if (Prefs.vibrancy(this)) {
             ColorMatrix cm = new ColorMatrix();
             cm.setSaturation(1.18f);
             cf = new ColorMatrixColorFilter(cm);
@@ -983,7 +982,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     private void renderSelfCheck(LinearLayout list) {
         list.removeAllViews();
         android.content.SharedPreferences sp =
-                getSharedPreferences("selfcheck", MODE_PRIVATE);
+                getSharedPreferences(Prefs.FILE_SELFCHECK, MODE_PRIVATE);
         java.text.DateFormat tf = new java.text.SimpleDateFormat("MM-dd HH:mm",
                 java.util.Locale.getDefault());
         for (String[] t : Targets.LIST) {
@@ -1084,7 +1083,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
                     show ? android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
                             : android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                     android.content.pm.PackageManager.DONT_KILL_APP);
-            hookPrefs().edit().putBoolean("set_desktop_icon", show).apply();
+            Prefs.setDesktopIconPref(this, show);
             sw.setChecked(show);
         } catch (Throwable t) {
             android.widget.Toast.makeText(this, "切换失败：" + t,
@@ -1189,13 +1188,13 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     private boolean isHookEnabled(String pkg) {
-        return hookPrefs().getBoolean("hook_" + pkg, false);   // P0-1：默认关
+        return Prefs.hookEnabled(this, pkg);   // P0-1：默认关
     }
 
     /** 刷新底栏“应用”角标：= 已安装且勾选启用的作用域应用数；为 0 或设置页关掉角标则隐藏 */
     private void updateScopeBadge() {
         if (scopeBadge == null) return;
-        if (!hookPrefs().getBoolean("set_app_badge", true)) {   // 设置页总开关：不喜欢看就不显示
+        if (!Prefs.appBadgeEnabled(this)) {   // 设置页总开关：不喜欢看就不显示
             scopeBadge.setVisibility(View.GONE);
             return;
         }
@@ -1215,7 +1214,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
         private void setHookEnabled(String pkg, boolean enabled) {
         // 只写模块私有偏好；Hook 侧经 HookStateProvider 读取（不受 ROM 权限限制）
-        hookPrefs().edit().putBoolean("hook_" + pkg, enabled).apply();
+        Prefs.setHookEnabled(this, pkg, enabled);
     }
 
     /** "设置"页：分组 + 卡片行（对标 FFV 设置页；行内功能待接） */
@@ -1243,10 +1242,10 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         // ===== 分组：个性化 =====
         box.addView(sectionHeader("个性化"));
         addCard(box, appearanceRow());
-        addCard(box, setRow(R.drawable.ic_set_drop, "磨砂模糊", "为模块界面增加磨砂玻璃（View 近似）效果", "set_liquid_blur"));
+        addCard(box, setRow(R.drawable.ic_set_drop, "磨砂模糊", "为模块界面增加磨砂玻璃（View 近似）效果", Prefs.KEY_LIQUID_BLUR));
         addCard(box, glassSectionCard());
         addCard(box, languageRow());
-        addCard(box, setRow(R.drawable.ic_set_bell, "底栏应用角标", "在底栏“应用”按钮上显示数量角标", "set_app_badge"));
+        addCard(box, setRow(R.drawable.ic_set_bell, "底栏应用角标", "在底栏“应用”按钮上显示数量角标", Prefs.KEY_APP_BADGE));
 
         // ===== 分组：桌面图标 =====
         box.addView(sectionHeader("桌面图标"));
@@ -1259,7 +1258,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         // ===== 分组：更新 =====
         box.addView(sectionHeader("更新"));
         addCard(box, setRow(R.drawable.ic_set_refresh, "自动检查更新",
-                "应用启动时自动检测新版本", "set_auto_update"));
+                "应用启动时自动检测新版本", Prefs.KEY_AUTO_UPDATE));
         addCard(box, setRow(R.drawable.ic_set_refresh, "获取更新", null, null));
 
         return scroll;
@@ -1313,7 +1312,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         if (switchKey != null) {
             android.widget.Switch sw = new android.widget.Switch(this);
             // P0-1：hook 类键（hook_/sub_）默认关（未设置=不动作）；界面功能键保持原默认
-            boolean hookKey = switchKey.startsWith("hook_") || switchKey.startsWith("sub_");
+            boolean hookKey = Prefs.isHookKey(switchKey);
             sw.setChecked(hookPrefs().getBoolean(switchKey, !hookKey));
             sw.setOnCheckedChangeListener((v, checked) -> {
                 hookPrefs().edit().putBoolean(switchKey, checked).apply();
@@ -1330,7 +1329,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
     /** 语言行：跟随系统 / 简体中文（即时生效，重建界面） */
     private LinearLayout languageRow() {
-        int mode = hookPrefs().getInt("locale_mode", 0);
+        int mode = Prefs.localeMode(this);
         LinearLayout row = setRow(R.drawable.ic_set_lang, "语言",
                 mode == 1 ? "简体中文（强制）" : "跟随系统", null);
         row.setOnClickListener(v -> showLanguageDialog());
@@ -1353,7 +1352,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         title.setTextColor(INK);
         card.addView(title);
 
-        int cur = hookPrefs().getInt("locale_mode", 0);
+        int cur = Prefs.localeMode(this);
         final String[] names = {"跟随系统", "简体中文（强制）"};
         for (int i = 0; i < names.length; i++) {
             final int idx = i;
@@ -1363,7 +1362,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
             item.setTextColor(INK);
             item.setPadding((int) (12 * dp), (int) (14 * dp), (int) (12 * dp), (int) (14 * dp));
             item.setOnClickListener(v -> {
-                hookPrefs().edit().putInt("locale_mode", idx).apply();
+                Prefs.sp(this).edit().putInt(Prefs.KEY_LOCALE_MODE, idx).apply();
                 dialog.dismiss();
                 recreate();
             });
@@ -1435,21 +1434,21 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         glassSectionContent.setOrientation(LinearLayout.VERTICAL);
         glassSectionContent.setPadding((int) (14 * dp), 0, (int) (14 * dp), (int) (12 * dp));
         // 参数、范围、默认值、副标题文案均与模板 SettingsScreen.kt「动效」区一一对应
-        glassSliderRow(glassSectionContent, "动效阻尼", "glass_damping", 0, 100, 50, "%",
+        glassSliderRow(glassSectionContent, "动效阻尼", Prefs.KEY_GLASS_DAMPING, 0, 100, 50, "%",
                 v -> "全局弹簧阻尼：" + v + "%，越低越弹");
-        glassSliderRow(glassSectionContent, "模糊强度", "glass_blur", 0, 40, 0, "dp",
+        glassSliderRow(glassSectionContent, "模糊强度", Prefs.KEY_GLASS_BLUR, 0, 40, 0, "dp",
                 v -> "背景模糊强度：" + v + "dp");
-        glassSliderRow(glassSectionContent, "折射高度", "glass_refract_height", 0, 40, 15, "dp",
+        glassSliderRow(glassSectionContent, "折射高度", Prefs.KEY_GLASS_REFRACT_HEIGHT, 0, 40, 15, "dp",
                 v -> "液态透镜边缘高度：" + v + "dp");
-        glassSliderRow(glassSectionContent, "折射幅度", "glass_refract_amount", 0, 60, 20, "dp",
+        glassSliderRow(glassSectionContent, "折射幅度", Prefs.KEY_GLASS_REFRACT_AMOUNT, 0, 60, 20, "dp",
                 v -> "壁纸内容偏移幅度：" + v + "dp");
-        glassSliderRow(glassSectionContent, "玻璃染色", "glass_tint_alpha", 0, 35, 8, "%",
+        glassSliderRow(glassSectionContent, "玻璃染色", Prefs.KEY_GLASS_TINT_ALPHA, 0, 35, 8, "%",
                 v -> "白色玻璃涂层：" + v + "%");
-        glassSliderRow(glassSectionContent, "高光边框", "glass_border", 0, 45, 20, "%",
+        glassSliderRow(glassSectionContent, "高光边框", Prefs.KEY_GLASS_BORDER, 0, 45, 20, "%",
                 v -> "玻璃边缘强度：" + v + "%");
-        glassSwitchRow(glassSectionContent, "增强色彩层次", "glass_vibrancy",
+        glassSwitchRow(glassSectionContent, "增强色彩层次", Prefs.KEY_GLASS_VIBRANCY,
                 "提升玻璃后的壁纸色彩通透感");
-        glassSwitchRow(glassSectionContent, "色差折射", "glass_chromatic",
+        glassSwitchRow(glassSectionContent, "色差折射", Prefs.KEY_GLASS_CHROMATIC,
                 "在液态透镜边缘显示更明显的色散");
         TextView note = new TextView(this);
         note.setText("【与模板真玻璃的差异】\n"
@@ -1598,7 +1597,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
     /** 玻璃染色滑杆（0..0.35，默认 0.08）——经 GlassPrefs 收口 */
     private float glassTintAlphaPref() {
-        return GlassPrefs.tintAlpha(this);
+        return Prefs.tintAlpha(this);
     }
 
     /** 模板 backdrop 路径染色公式（Glass.kt:181）：glassTintAlpha + opacity × 0.04 */
@@ -1622,19 +1621,19 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     /** 折射高度滑杆（0..40dp，默认 15）→ 棱光厚度比例：15dp=1.0 标准，40dp=2.0 厚棱（近似映射） */
     @Override
     public float glassPrismScale() {
-        return GlassPrefs.clamp(GlassPrefs.prismHeightDp(this) / 15f, 0f, 2f);
+        return Prefs.clamp(Prefs.prismHeightDp(this) / 15f, 0f, 2f);
     }
 
     /** 折射幅度滑杆（0..60dp，默认 20）→ 背景层放大（透镜内容偏移的 View 近似映射） */
     @Override
     public int glassRefractionAmountDp() {
-        return GlassPrefs.prismAmountDp(this);
+        return Prefs.prismAmountDp(this);
     }
 
     /** 色差折射开关（默认开）→ 棱光 RGB 色散（近似） */
     @Override
     public boolean glassChromaticEnabled() {
-        return GlassPrefs.chromatic(this);
+        return Prefs.chromatic(this);
     }
 
     @Override
@@ -1642,14 +1641,14 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
     @Override
     public int glassBlurDp() {
-        return GlassPrefs.blurDp(this);
+        return Prefs.blurDp(this);
     }
 
     @Override
     public Paint glassCardSamplePaint() { return cardSamplePaint; }
 
     private int cardStrokeColor() {
-        int bAlpha = Math.round(GlassPrefs.borderAlpha(this) * 255f);
+        int bAlpha = Math.round(Prefs.borderAlpha(this) * 255f);
         return (bAlpha << 24) | 0xFFFFFF;
     }
 
@@ -1673,7 +1672,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     /** 外观行：点击弹出液态玻璃质感弹窗，副标题显示当前选择 */
     private LinearLayout appearanceRow() {
         final String[] names = {"跟随系统", "浅色液态玻璃", "深色液态玻璃", "极光流体玻璃"};
-        int cur = hookPrefs().getInt("theme_mode", 0);
+        int cur = Prefs.themeMode(this);
         String sub = names[cur >= 0 && cur < names.length ? cur : 0];
         if (cur == 0) sub += darkMode ? "（当前深色）" : "（当前浅色）";
         LinearLayout row = setRow(R.drawable.ic_set_palette, "外观", sub, null);
@@ -2243,7 +2242,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     /** 重捕底栏身后的内容并降采样（滚动 / 切页时调用） */
     private void refreshBarGlass() {
         if (blurBusy || barWrap.getWidth() == 0 || barWrap.getHeight() == 0) return;
-        if (!GlassPrefs.liquidBlurEnabled(this)) return;   // 关闭时跳过重捕，省 CPU
+        if (!Prefs.liquidBlurEnabled(this)) return;   // 关闭时跳过重捕，省 CPU
         blurBusy = true;
         try {
             int bw = barWrap.getWidth() / 2, bh = barWrap.getHeight() / 2;
@@ -2334,7 +2333,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     /** 在胶囊内绘制身后内容的模糊版 + 白色蒙层（时机：背景之上、图标之下） */
     private void drawBarGlass(Canvas canvas) {
         if (glassChainBg == null) return;
-        if (!GlassPrefs.liquidBlurEnabled(this)) return;   // 磨砂关闭 → 纯半透明底栏
+        if (!Prefs.liquidBlurEnabled(this)) return;   // 磨砂关闭 → 纯半透明底栏
         int w = barWrap.getWidth(), h = barWrap.getHeight();
         // 尺寸没变就复用缓存的裁剪 Path（动画期间 onDraw 每帧进来，避免每帧 new → GC 抑制）
         if (clipW != w || clipH != h) {

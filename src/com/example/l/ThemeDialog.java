@@ -61,7 +61,7 @@ public final class ThemeDialog {
         card.addView(subView);
 
         final SharedPreferences sp = context.getSharedPreferences("settings", Context.MODE_PRIVATE);
-        int currentTheme = sp.getInt("theme_mode", 0); // 0:跟随 1:浅色 2:深色 3:极光蓝
+        int currentTheme = sp.getInt(Prefs.KEY_THEME_MODE, 0); // 0:跟随 1:浅色 2:深色 3:极光蓝
 
         final String[] options = {
                 "跟随系统 (自适应浅色/深色玻璃)",
@@ -89,7 +89,7 @@ public final class ThemeDialog {
             item.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    sp.edit().putInt("theme_mode", index).apply();
+                    sp.edit().putInt(Prefs.KEY_THEME_MODE, index).apply();
                     dialog.dismiss();
                     if (listener != null) listener.onThemeSelected(index);
                 }

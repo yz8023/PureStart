@@ -138,7 +138,7 @@ def main():
 
     # ---- 5. 守门：UI/Hook 隔离 + 密钥在位 ----
     print("[5] UI/Hook 类隔离（UI 进程不得引用 Hook 类）")
-    ui_files = ["SettingsActivity.java", "GlassCardView.java", "GlassPrefs.java", "LiquidGlass.java",
+    ui_files = ["SettingsActivity.java", "GlassCardView.java", "Prefs.java", "LiquidGlass.java",
                 "ThemeDialog.java", "AppDetailDialog.java", "HoldShieldView.java",
                 "HookStateProvider.java", "Targets.java", "IconControlReceiver.java"]
     bad = re.compile(r"Main\.TARGETS|Main\.Reporter|XiaoCanHook\.|UniversalAdHook\.|DexFinder\.|"

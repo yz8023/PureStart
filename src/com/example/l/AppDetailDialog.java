@@ -73,16 +73,16 @@ public final class AppDetailDialog {
         LinearLayout list = new LinearLayout(context);
         list.setOrientation(LinearLayout.VERTICAL);
 
-        final SharedPreferences sp = context.getSharedPreferences("settings", Context.MODE_PRIVATE);
+        final SharedPreferences sp = Prefs.sp(context);
 
         // 子项 1: 开屏冷热启动去广告
-        list.addView(createSwitchRow(context, isDark, "开屏冷热启动广告", "阻止启动屏倒计时与广告卡片渲染", "sub_splash_" + pkg, sp, listener));
+        list.addView(createSwitchRow(context, isDark, "开屏冷热启动广告", "阻止启动屏倒计时与广告卡片渲染", Prefs.PREFIX_SUB_SPLASH + pkg, sp, listener));
         // 子项 2: 信息流与横幅净化
-        list.addView(createSwitchRow(context, isDark, "信息流与横幅净化", "隐藏推荐列表、动态流卡片中的广告项", "sub_feed_" + pkg, sp, listener));
+        list.addView(createSwitchRow(context, isDark, "信息流与横幅净化", "隐藏推荐列表、动态流卡片中的广告项", Prefs.PREFIX_SUB_FEED + pkg, sp, listener));
         // 子项 3: 弹窗与激励视频阻断
-        list.addView(createSwitchRow(context, isDark, "营销弹窗与全屏插播", "拦截自动弹出的活动推广与悬浮广告", "sub_popup_" + pkg, sp, listener));
+        list.addView(createSwitchRow(context, isDark, "营销弹窗与全屏插播", "拦截自动弹出的活动推广与悬浮广告", Prefs.PREFIX_SUB_POPUP + pkg, sp, listener));
         // 子项 4: DexFinder 自动特征模糊匹配
-        list.addView(createSwitchRow(context, isDark, "DexFinder 自动特征识别", "版本更新混淆后通过字节码特征自动找回拦截点", "sub_dexfinder_" + pkg, sp, listener));
+        list.addView(createSwitchRow(context, isDark, "DexFinder 自动特征识别", "版本更新混淆后通过字节码特征自动找回拦截点", Prefs.PREFIX_SUB_DEXFINDER + pkg, sp, listener));
 
         scroll.addView(list, new LinearLayout.LayoutParams(-1, (int) (240 * density)));
         card.addView(scroll);

@@ -61,13 +61,13 @@ public class Main extends XposedModule implements HookGate {
         return v;
     }
 
-    /** 细分子项 key → 偏好名（设置页 AppDetailDialog 写入的同名键） */
+    /** 细分子项 key → 偏好名前缀（键名唯一出处 Prefs.java） */
     private static final String[][] SUB_KEYS = {
-            { "enabled",   "hook_" },
-            { "splash",    "sub_splash_" },
-            { "feed",      "sub_feed_" },
-            { "popup",     "sub_popup_" },
-            { "dexfinder", "sub_dexfinder_" },
+            { "enabled",   Prefs.PREFIX_HOOK },
+            { "splash",    Prefs.PREFIX_SUB_SPLASH },
+            { "feed",      Prefs.PREFIX_SUB_FEED },
+            { "popup",     Prefs.PREFIX_SUB_POPUP },
+            { "dexfinder", Prefs.PREFIX_SUB_DEXFINDER },
     };
 
     /**
@@ -129,7 +129,7 @@ public class Main extends XposedModule implements HookGate {
             // ② 兜底：框架远程偏好
             if (!got) {
                 try {
-                    SharedPreferences sp = getRemotePreferences("settings");
+                    SharedPreferences sp = getRemotePreferences(Prefs.FILE);
                     if (sp != null) {
                         synchronized (cfgCache) {
                             cfgCache.clear();

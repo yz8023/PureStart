@@ -42,9 +42,9 @@ public final class LiquidGlass {
      */
     public static GradientDrawable glassCard(Context context, boolean isDark, float cornerRadiusDp) {
         float density = context.getResources().getDisplayMetrics().density;
-        float opacity = GlassPrefs.opacity(context);
-        float tint = GlassPrefs.tintAlpha(context);
-        float border = GlassPrefs.borderAlpha(context);
+        float opacity = Prefs.opacity(context);
+        float tint = Prefs.tintAlpha(context);
+        float border = Prefs.borderAlpha(context);
         float alpha = clamp(0.26f + tint + opacity * 0.18f, 0f, 0.72f);
 
         GradientDrawable gd = new GradientDrawable();
