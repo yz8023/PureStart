@@ -60,7 +60,7 @@ public final class ThemeDialog {
         subView.setPadding(0, (int) (4 * density), 0, dp16);
         card.addView(subView);
 
-        final SharedPreferences sp = context.getSharedPreferences("settings", Context.MODE_PRIVATE);
+        final SharedPreferences sp = Prefs.sp(context);
         int currentTheme = sp.getInt(Prefs.KEY_THEME_MODE, 0); // 0:跟随 1:浅色 2:深色 3:极光蓝
 
         final String[] options = {
