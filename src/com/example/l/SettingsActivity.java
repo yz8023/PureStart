@@ -169,8 +169,6 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         }
     }
     private final Path capsuleClip = new Path();     // 胶囊内阴影裁剪（独立于底栏 glassClip）
-    private LinearLayout glassSectionContent;        // 玻璃细则折叠内容（平铺可折叠）
-    private TextView glassChevron;                   // 折叠指示箭头
     private GradientDrawable barBgDrawable;          // 底栏容器底色引用（实时预览改透明度）
     private int barSurfaceColor = 0xF0F0F4;          // 当前主题的 surfaceContainer 底色
     private final Paint cardSamplePaint = new Paint(
@@ -180,6 +178,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     final HomePage homePage = new HomePage(this);      // 「首页」页组装（P1-2 拆出）
     final AppsPage appsPage = new AppsPage(this);      // 「应用」页组装（P1-2 拆出）
     final ExtensionPage extPage = new ExtensionPage(this); // 「拓展」页组装（P1-2 拆出）
+    final SettingsCards settingsPage = new SettingsCards(this); // 「设置」页组装（P1-2 拆出）
     private int selectedTab = 0;
     float dp;
 
@@ -310,7 +309,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         pageContainer.addView(homePage.build());
         pageContainer.addView(appsPage.build());
         pageContainer.addView(extPage.build());
-        pageContainer.addView(makeSettingsPage());
+        pageContainer.addView(settingsPage.build());
         for (int i = 1; i < pageContainer.getChildCount(); i++) {
             pageContainer.getChildAt(i).setVisibility(View.GONE);
         }
@@ -827,52 +826,6 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** "设置"页：分组 + 卡片行（对标 FFV 设置页；行内功能待接） */
-    private View makeSettingsPage() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (22 * dp);
-        box.setPadding(pad, (int) (10 * dp), pad, (int) (108 * dp));
-        scroll.addView(box, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-
-        // ① 大标题
-        TextView title = new TextView(this);
-        title.setText("设置");
-        title.setTextSize(30);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(INK);
-        title.setPadding((int) (2 * dp), 0, 0, (int) (14 * dp));
-        box.addView(title);
-
-        // ===== 分组：个性化 =====
-        box.addView(sectionHeader("个性化"));
-        addCard(box, appearanceRow());
-        addCard(box, setRow(R.drawable.ic_set_drop, "磨砂模糊", "为模块界面增加磨砂玻璃（View 近似）效果", Prefs.KEY_LIQUID_BLUR));
-        addCard(box, glassSectionCard());
-        addCard(box, languageRow());
-        addCard(box, setRow(R.drawable.ic_set_bell, "底栏应用角标", "在底栏“应用”按钮上显示数量角标", Prefs.KEY_APP_BADGE));
-
-        // ===== 分组：桌面图标 =====
-        box.addView(sectionHeader("桌面图标"));
-        addCard(box, homePage.desktopIconRow());
-
-        // ===== 分组：Hook 自检 =====
-        box.addView(sectionHeader("Hook 自检"));
-        addCard(box, homePage.selfCheckCard());
-
-        // ===== 分组：更新 =====
-        box.addView(sectionHeader("更新"));
-        addCard(box, setRow(R.drawable.ic_set_refresh, "自动检查更新",
-                "应用启动时自动检测新版本", Prefs.KEY_AUTO_UPDATE));
-        addCard(box, setRow(R.drawable.ic_set_refresh, "获取更新", null, null));
-
-        return scroll;
-    }
-
     /** 设置页分组小标题 */
     TextView sectionHeader(String text) {
         TextView t = new TextView(this);
@@ -936,241 +889,8 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         return card;
     }
 
-    /** 语言行：跟随系统 / 简体中文（即时生效，重建界面） */
-    private LinearLayout languageRow() {
-        int mode = Prefs.localeMode(this);
-        LinearLayout row = setRow(R.drawable.ic_set_lang, "语言",
-                mode == 1 ? "简体中文（强制）" : "跟随系统", null);
-        row.setOnClickListener(v -> showLanguageDialog());
-        return row;
-    }
-
-    private void showLanguageDialog() {
-        final android.app.Dialog dialog = new android.app.Dialog(this);
-        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        int dp24 = (int) (24 * dp);
-        card.setPadding(dp24, dp24, dp24, dp24);
-        card.setBackground(LiquidGlass.glassCard(this, darkMode, 28));
-
-        TextView title = new TextView(this);
-        title.setText("界面语言");
-        title.setTextSize(18);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(INK);
-        card.addView(title);
-
-        int cur = Prefs.localeMode(this);
-        final String[] names = {"跟随系统", "简体中文（强制）"};
-        for (int i = 0; i < names.length; i++) {
-            final int idx = i;
-            TextView item = new TextView(this);
-            item.setText(names[i] + (i == cur ? "  ✓" : ""));
-            item.setTextSize(14.5f);
-            item.setTextColor(INK);
-            item.setPadding((int) (12 * dp), (int) (14 * dp), (int) (12 * dp), (int) (14 * dp));
-            item.setOnClickListener(v -> {
-                Prefs.sp(this).edit().putInt(Prefs.KEY_LOCALE_MODE, idx).apply();
-                dialog.dismiss();
-                recreate();
-            });
-            card.addView(item);
-        }
-        TextView note = new TextView(this);
-        note.setText("英文界面翻译筹备中，当前界面为简体中文。");
-        note.setTextSize(11);
-        note.setTextColor(SUB);
-        note.setPadding(0, (int) (10 * dp), 0, 0);
-        card.addView(note);
-
-        android.widget.FrameLayout rootWrap = new android.widget.FrameLayout(this);
-        int dp16 = (int) (16 * dp);
-        rootWrap.setPadding(dp16, dp16, dp16, dp16);
-        rootWrap.addView(card);
-        dialog.setContentView(rootWrap);
-        dialog.show();
-        android.view.Window w = dialog.getWindow();
-        if (w != null) {
-            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
-            w.setLayout((int) (320 * dp), android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-            LiquidGlass.applyFrostedWindow(w, dp);
-        }
-    }
-
-    /** 玻璃细则：平铺可折叠卡片（对标 ui 模板 AppChrome，改动即时实时预览） */
-    private LinearLayout glassSectionCard() {
-        LinearLayout card = makeCard();
-        card.setOrientation(LinearLayout.VERTICAL);
-
-        // 头部：图标 + 标题 + 折叠箭头
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding((int) (14 * dp), (int) (14 * dp), (int) (14 * dp), (int) (14 * dp));
-        ImageView hIcon = new ImageView(this);
-        hIcon.setImageResource(R.drawable.ic_set_palette);
-        hIcon.setColorFilter(ACCENT);
-        header.addView(hIcon, new LinearLayout.LayoutParams((int) (26 * dp), (int) (26 * dp)));
-        LinearLayout hMid = new LinearLayout(this);
-        hMid.setOrientation(LinearLayout.VERTICAL);
-        hMid.setPadding((int) (12 * dp), 0, 0, 0);
-        TextView hTitle = new TextView(this);
-        hTitle.setText("磨砂玻璃（View 近似）");
-        hTitle.setTextSize(15);
-        hTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        hTitle.setTextColor(INK);
-        hMid.addView(hTitle);
-        TextView hSub = new TextView(this);
-        hSub.setText("参数取值借鉴 ui 模板 · 拖动实时预览");
-        hSub.setTextSize(12);
-        hSub.setTextColor(SUB);
-        hSub.setPadding(0, (int) (2 * dp), 0, 0);
-        hMid.addView(hSub);
-        header.addView(hMid, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        glassChevron = new TextView(this);
-        glassChevron.setText("▾");
-        glassChevron.setTextSize(18);
-        glassChevron.setTextColor(SUB);
-        glassChevron.setRotation(180f);   // 默认展开（平铺）
-        header.addView(glassChevron);
-        header.setOnClickListener(v -> toggleGlassSection());
-        card.addView(header);
-
-        // 内容：默认平铺展开，滑杆改动实时预览
-        glassSectionContent = new LinearLayout(this);
-        glassSectionContent.setOrientation(LinearLayout.VERTICAL);
-        glassSectionContent.setPadding((int) (14 * dp), 0, (int) (14 * dp), (int) (12 * dp));
-        // 参数、范围、默认值、副标题文案均与模板 SettingsScreen.kt「动效」区一一对应
-        glassSliderRow(glassSectionContent, "动效阻尼", Prefs.KEY_GLASS_DAMPING, 0, 100, 50, "%",
-                v -> "全局弹簧阻尼：" + v + "%，越低越弹");
-        glassSliderRow(glassSectionContent, "模糊强度", Prefs.KEY_GLASS_BLUR, 0, 40, 0, "dp",
-                v -> "背景模糊强度：" + v + "dp");
-        glassSliderRow(glassSectionContent, "折射高度", Prefs.KEY_GLASS_REFRACT_HEIGHT, 0, 40, 15, "dp",
-                v -> "液态透镜边缘高度：" + v + "dp");
-        glassSliderRow(glassSectionContent, "折射幅度", Prefs.KEY_GLASS_REFRACT_AMOUNT, 0, 60, 20, "dp",
-                v -> "壁纸内容偏移幅度：" + v + "dp");
-        glassSliderRow(glassSectionContent, "玻璃染色", Prefs.KEY_GLASS_TINT_ALPHA, 0, 35, 8, "%",
-                v -> "白色玻璃涂层：" + v + "%");
-        glassSliderRow(glassSectionContent, "高光边框", Prefs.KEY_GLASS_BORDER, 0, 45, 20, "%",
-                v -> "玻璃边缘强度：" + v + "%");
-        glassSwitchRow(glassSectionContent, "增强色彩层次", Prefs.KEY_GLASS_VIBRANCY,
-                "提升玻璃后的壁纸色彩通透感");
-        glassSwitchRow(glassSectionContent, "色差折射", Prefs.KEY_GLASS_CHROMATIC,
-                "在液态透镜边缘显示更明显的色散");
-        TextView note = new TextView(this);
-        note.setText("【与模板真玻璃的差异】\n"
-                + "· 无 backdrop 实时折射：View 无法录制任意图层，卡片=窗口内背景位图按坐标裁剪，底栏=限频截图降分辨率模糊（均非 Compose backdrop 语义）；\n"
-                + "· 无 lens 折射：折射高度→棱光厚度、折射幅度→背景层放大均为自创近似映射（模板中不存在此对应关系），滚动经过下方的内容不会被折射；\n"
-                + "· 弹窗在 Android 12+ 用系统窗口背景模糊（真磨砂），12 以下退化为半透明蒙层。\n"
-                + "【验收】滑动不掉帧 · 深浅色均可读 · 可点区域不受影响。");
-        note.setTextSize(11);
-        note.setTextColor(SUB);
-        note.setLineSpacing(3 * dp, 1f);
-        note.setPadding(0, (int) (10 * dp), 0, 0);
-        glassSectionContent.addView(note);
-        card.addView(glassSectionContent);
-        return card;
-    }
-
-    /** 折叠 / 展开（高度过渡 + 箭头旋转） */
-    private void toggleGlassSection() {
-        if (glassSectionContent == null) return;
-        boolean expand = glassSectionContent.getVisibility() != View.VISIBLE;
-        try {
-            android.transition.TransitionManager.beginDelayedTransition(
-                    (ViewGroup) glassSectionContent.getParent(),
-                    new android.transition.AutoTransition().setDuration(240));
-        } catch (Throwable ignored) {}
-        glassSectionContent.setVisibility(expand ? View.VISIBLE : View.GONE);
-        if (glassChevron != null) {
-            glassChevron.animate().rotation(expand ? 180f : 0f).setDuration(240).start();
-        }
-    }
-
-    /** 滑杆行（模板 SliderCard 同构）：标题 + 副标题（内嵌实时值，文案照搬模板）+ 着色 SeekBar */
-    private void glassSliderRow(LinearLayout box, String name, final String key,
-                                final int min, final int max, final int def, String unit,
-                                final java.util.function.IntFunction<String> subtitle) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(0, (int) (8 * dp), 0, (int) (8 * dp));
-
-        TextView nm = new TextView(this);
-        nm.setText(name);
-        nm.setTextSize(14);
-        nm.setTypeface(Typeface.DEFAULT_BOLD);
-        nm.setTextColor(INK);
-        row.addView(nm);
-        final TextView sub = new TextView(this);
-        sub.setTextSize(12);
-        sub.setTextColor(SUB);
-        sub.setPadding(0, (int) (2 * dp), 0, (int) (4 * dp));
-        sub.setText(subtitle.apply(hookPrefs().getInt(key, def)));
-        row.addView(sub);
-
-        SeekBar sb = new SeekBar(this);
-        sb.setMax(max - min);
-        sb.setProgress(hookPrefs().getInt(key, def) - min);
-        sb.setProgressTintList(ColorStateList.valueOf(ACCENT));
-        sb.setThumbTintList(ColorStateList.valueOf(ACCENT));
-        sb.setProgressBackgroundTintList(ColorStateList.valueOf(
-                darkMode ? 0x33FFFFFF : 0x1A18181B));
-        sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
-                int v = min + p;
-                sub.setText(subtitle.apply(v));
-                hookPrefs().edit().putInt(key, v).apply();
-                applyGlassLive();   // 实时预览：拖动即刻生效
-            }
-            @Override public void onStartTrackingTouch(SeekBar s) {}
-            @Override public void onStopTrackingTouch(SeekBar s) {}
-        });
-        row.addView(sb, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        box.addView(row, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-    }
-
-    /** 开关行（模板 PreferenceRow 同构）：标题 + 副标题 + Switch（改动实时预览） */
-    private void glassSwitchRow(LinearLayout box, String name, final String key, String subtitle) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, (int) (8 * dp), 0, (int) (8 * dp));
-        LinearLayout tm = new LinearLayout(this);
-        tm.setOrientation(LinearLayout.VERTICAL);
-        TextView nm = new TextView(this);
-        nm.setText(name);
-        nm.setTextSize(14);
-        nm.setTypeface(Typeface.DEFAULT_BOLD);
-        nm.setTextColor(INK);
-        tm.addView(nm);
-        TextView sb = new TextView(this);
-        sb.setText(subtitle);
-        sb.setTextSize(12);
-        sb.setTextColor(SUB);
-        sb.setPadding(0, (int) (2 * dp), 0, 0);
-        tm.addView(sb);
-        row.addView(tm, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        android.widget.Switch sw = new android.widget.Switch(this);
-        sw.setChecked(hookPrefs().getBoolean(key, true));
-        sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            hookPrefs().edit().putBoolean(key, isChecked).apply();
-            applyGlassLive();
-        });
-        row.addView(sw);
-        box.addView(row, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-    }
-
     /** 玻璃细则实时预览：一处改动，底栏 + 卡片 + 弹簧 + 采样全部即时刷新 */
-    private void applyGlassLive() {
+    void applyGlassLive() {
         recomputeBarTint();
         requestGlassRefresh();
         if (pill != null) pill.invalidate();
@@ -1279,20 +999,6 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** 外观行：点击弹出液态玻璃质感弹窗，副标题显示当前选择 */
-    private LinearLayout appearanceRow() {
-        final String[] names = {"跟随系统", "浅色液态玻璃", "深色液态玻璃", "极光流体玻璃"};
-        int cur = Prefs.themeMode(this);
-        String sub = names[cur >= 0 && cur < names.length ? cur : 0];
-        if (cur == 0) sub += darkMode ? "（当前深色）" : "（当前浅色）";
-        LinearLayout row = setRow(R.drawable.ic_set_palette, "外观", sub, null);
-        row.setOnClickListener(v -> {
-            ThemeDialog.show(this, darkMode, which -> {
-                recreate();
-            });
-        });
-        return row;
-    }
-
     /** 作用域应用数：读 APK 内 META-INF/xposed/scope.list，逐行统计（空行与 # 注释忽略）
      *  ⚠ LSPosed 管理器里动态勾选的存在其私有数据库，App 进程读不到；这里是模块声明的静态作用域 */
     int scopeAppCount() {
