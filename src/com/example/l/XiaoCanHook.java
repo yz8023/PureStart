@@ -25,7 +25,7 @@ import io.github.libxposed.api.XposedInterface;
 /**
  * XiaoCanHook —— 忠实移植 GeniusQA/XiaoCan（小蚕净化）的 AdBlocker + PopupBlocker 核心。
  *
- * v15.0.3 移植修复（此前失效的根因）：
+ * 移植修复（此前失效的根因，见 git 历史）：
  *  1. 小蚕是加固壳应用（V库/类聚仁盾），onPackageLoaded 时业务类尚未解密加载 ——
  *     现按原模块的三段式时机：onPackageReady 尝试 → Application.attachBaseContext /
  *     Application.onCreate / Activity.onCreate 三个生命周期点重试，canLoadTargetClasses

@@ -24,23 +24,6 @@ if [ ! -x "$BT/aapt2" ]; then echo "ERROR: 缺少 build-tools/34.0.0（$BT）" >
 AAPT2="$BT/aapt2"; D8="$BT/d8"; ZIPALIGN="$BT/zipalign"; APKSIGNER="$BT/apksigner"
 API_JAR="libs/api.jar"
 
-# === 版本号：唯一来源 AndroidManifest.xml ===
-VERSION_NAME="$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)"
-VERSION_CODE="$(sed -n 's/.*android:versionCode="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)"
-if [ -z "$VERSION_NAME" ] || [ -z "$VERSION_CODE" ]; then
-  echo "ERROR: 无法从 AndroidManifest.xml 解析版本号" >&2; exit 1
-fi
-echo "版本（唯一来源 Manifest）：v$VERSION_NAME / $VERSION_CODE"
-
-# module.prop 由 Manifest 派生（写回仓库副本保持同步）
-sed -i "s/^version=.*/version=v$VERSION_NAME/" xposed/module.prop
-sed -i "s/^versionCode=.*/versionCode=$VERSION_CODE/" xposed/module.prop
-
-# === 漂移检查（目标清单 / 版本一致性；置于 module.prop 写回之后） ===
-if command -v python3 >/dev/null 2>&1; then
-  python3 scripts/check_consistency.py || { echo "ERROR: 一致性检查未通过（见上）" >&2; exit 1; }
-fi
-
 OUT=build
 rm -rf $OUT
 mkdir -p $OUT/classes $OUT/dex $OUT/gen
@@ -49,19 +32,27 @@ echo "[1/5] aapt2 compile + link (生成资源 + R.java)"
 $AAPT2 compile --dir res -o $OUT/res.zip
 $AAPT2 link -o $OUT/base.apk -I "$ANDROID_JAR" --manifest AndroidManifest.xml -R $OUT/res.zip --auto-add-overlay --java $OUT/gen
 
-echo "[1.5] 生成 BuildVersion.java（版本唯一来源的代码侧出口）+ BuildInfo.java"
+# === 版本号：唯一来源 AndroidManifest.xml，经 aapt2 dump badging 读链接产物（读不到即失败） ===
+BADGING="$($AAPT2 dump badging $OUT/base.apk 2>/dev/null | head -1)"
+VERSION_NAME="$(echo "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+VERSION_CODE="$(echo "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+if [ -z "$VERSION_NAME" ] || [ -z "$VERSION_CODE" ]; then
+  echo "ERROR: aapt2 dump badging 未能读出 versionName/versionCode" >&2; exit 1
+fi
+echo "版本（唯一来源 Manifest，aapt2 dump badging）：v$VERSION_NAME / $VERSION_CODE"
+
+# module.prop 由 Manifest 派生（写回仓库副本保持同步）
+sed -i "s/^version=.*/version=v$VERSION_NAME/" xposed/module.prop
+sed -i "s/^versionCode=.*/versionCode=$VERSION_CODE/" xposed/module.prop
+
+# === 漂移检查（scripts/check.py；置于 module.prop 写回之后） ===
+if command -v python3 >/dev/null 2>&1; then
+  python3 scripts/check.py || { echo "ERROR: 一致性检查未通过（见上）" >&2; exit 1; }
+fi
+
+echo "[1.5] 生成 BuildInfo.java（构建时间戳；版本号已改为运行时 PackageManager 读取，不再生成 BuildVersion）"
 BUILD_TS="$(date '+%Y-%m-%d %H:%M')"
 mkdir -p $OUT/gen/com/example/l
-cat > $OUT/gen/com/example/l/BuildVersion.java <<EOF
-package com.example.l;
-
-/** 由 build.sh 从 AndroidManifest.xml 自动生成（版本唯一来源），请勿手改 */
-public final class BuildVersion {
-    public static final String VERSION_NAME = "$VERSION_NAME";
-    public static final int VERSION_CODE = $VERSION_CODE;
-    private BuildVersion() {}
-}
-EOF
 cat > $OUT/gen/com/example/l/BuildInfo.java <<EOF
 package com.example.l;
 
@@ -91,15 +82,18 @@ cp xposed/scope.list     $OUT/xstage/META-INF/xposed/scope.list
 
 echo "[5/5] zipalign + sign"
 $ZIPALIGN -f -p 4 $OUT/unsigned.apk $OUT/aligned.apk
-# 签名密钥：环境变量 PURESTART_KEYSTORE 优先；默认仓库内 debug.keystore。
-# 绝不自动生成新密钥——换签名 = 用户无法覆盖升级（历史教训）。
-KS="${PURESTART_KEYSTORE:-debug.keystore}"
-if [ ! -f "$KS" ]; then
-  echo "ERROR: 签名密钥 $KS 不存在。仓库自带 debug.keystore（保证历代签名一致）；" >&2
-  echo "       正式发布请通过 PURESTART_KEYSTORE=/path/to/keystore 指定，不要临时生成新密钥。" >&2
+# P0-2：签名密钥只从环境变量读（KEYSTORE_PATH/KEYSTORE_PASS/KEY_ALIAS/KEY_PASS）。
+# 缺失即报错退出，绝不自动生成——换签名 = 无法覆盖升级。
+# 本仓库连续发布用的等价调用示例见 README（KEYSTORE_PATH=debug.keystore 等）。
+if [ -z "$KEYSTORE_PATH" ] || [ ! -f "$KEYSTORE_PATH" ]; then
+  echo "ERROR: 未设置 KEYSTORE_PATH 或文件不存在。" >&2
+  echo "  用法：KEYSTORE_PATH=/path/ks.jks KEYSTORE_PASS=*** KEY_ALIAS=*** KEY_PASS=*** bash build.sh" >&2
+  echo "  本地调试签名每台机器不同、不可覆盖安装历史版本（见 README）。" >&2
   exit 1
 fi
+: "${KEYSTORE_PASS:=android}" "${KEY_ALIAS:=androiddebugkey}" "${KEY_PASS:=android}"
 OUT_APK="build/PureStart-v${VERSION_NAME}-release.apk"
-$APKSIGNER sign --ks "$KS" --ks-pass pass:android --key-pass pass:android --out "$OUT_APK" $OUT/aligned.apk
+$APKSIGNER sign --ks "$KEYSTORE_PATH" --ks-pass "pass:$KEYSTORE_PASS" \
+  --ks-key-alias "$KEY_ALIAS" --key-pass "pass:$KEY_PASS" --out "$OUT_APK" $OUT/aligned.apk
 
 echo "DONE -> $OUT_APK（版本号/文件名均派生自 Manifest，无第二处手改）"

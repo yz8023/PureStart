@@ -17,14 +17,14 @@ import io.github.libxposed.api.XposedModuleInterface;
  * PureStart (ModKit Edition) — 现代化架构 Xposed 模块入口
  * 全面整合 XiaoCan 净化、通用广告过滤与 DexFinder 自动特征识别
  *
- * v15.0.7 工程修正（按外部分析报告 P0/P1）：
+ * 工程修正（按外部分析报告 P0/P1，编号见 git 历史）：
  *  - 开关闸门 fail-safe：双通道读取失败时保留上次已知值（last-known），
  *    完全无缓存时 fail-closed（返回 false）并输出 ERROR 日志；
  *    降级状态下缩短重试间隔（400ms），瞬时故障可自愈；
  *  - cfgCache 读写全程同步（Hook 可能运行在多线程）；
  *  - 通道状态变化即记录日志（不再只记一次）；
  *  - Hook 自检：安装结果经 Provider 回传设置页（selfcheck 通道）；
- *  - 版本号唯一来源 = AndroidManifest.xml（BuildVersion.java 由构建生成）。
+ *  - 版本号唯一来源 = AndroidManifest.xml；代码内版本文案运行时从 PackageManager 取。
  */
 public class Main extends XposedModule implements HookGate {
 
@@ -33,9 +33,33 @@ public class Main extends XposedModule implements HookGate {
     /** 目标清单唯一来源在 Targets.java（纯数据类，UI 进程也可安全加载） */
     static final String[][] TARGETS = Targets.LIST;
 
-    private static final Uri STATE_URI = Uri.parse("content://com.example.l.hookstate");
+    /** 模块包名（module id / Provider authority 同源；改包名时此处与 Manifest 同改，check.py 把关） */
+    static final String MODULE_PACKAGE = "com.example.l";
+    private static final String STATE_AUTHORITY = MODULE_PACKAGE + ".hookstate";
+    private static final Uri STATE_URI = Uri.parse("content://" + STATE_AUTHORITY);
+    private static final Uri SELFCHECK_URI = Uri.parse("content://" + STATE_AUTHORITY + "/selfcheck");
     private ContentResolver resolver;
     private String currentPkg;
+    private static volatile String cachedModuleVersion;
+
+    /** P0-2：版本文案运行时从 PackageManager 取（模块 forceQueryable，目标进程可查），不硬编码 */
+    static String moduleVersion() {
+        String v = cachedModuleVersion;
+        if (v != null) return v;
+        try {
+            Object app = Class.forName("android.app.ActivityThread")
+                    .getMethod("currentApplication").invoke(null);
+            if (app instanceof Context) {
+                v = ((Context) app).getPackageManager()
+                        .getPackageInfo(MODULE_PACKAGE, 0).versionName;
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "moduleVersion unavailable: " + t);
+        }
+        if (v == null) v = "unknown";
+        cachedModuleVersion = v;
+        return v;
+    }
 
     /** 细分子项 key → 偏好名（设置页 AppDetailDialog 写入的同名键） */
     private static final String[][] SUB_KEYS = {
@@ -191,10 +215,10 @@ public class Main extends XposedModule implements HookGate {
                 cv.put("ok", ok);
                 cv.put("miss", miss);
                 cv.put("fails", fails.length() > 300 ? fails.substring(0, 300) : fails.toString());
-                cv.put("version", BuildVersion.VERSION_NAME);
+                cv.put("version", moduleVersion());
                 cv.put("at", System.currentTimeMillis());
                 if (resolver != null) {
-                    resolver.insert(Uri.parse("content://com.example.l.hookstate/selfcheck"), cv);
+                    resolver.insert(SELFCHECK_URI, cv);
                 }
             } catch (Throwable t) {
                 Log.w(TAG, "selfcheck report dropped: " + t);
@@ -213,7 +237,7 @@ public class Main extends XposedModule implements HookGate {
             if (!t[0].equals(pkg)) continue;
             currentPkg = pkg;
             report = new InstallReport(pkg, resolver());
-            log(Log.INFO, TAG, "Loaded into " + pkg + " (module v" + BuildVersion.VERSION_NAME
+            log(Log.INFO, TAG, "Loaded into " + pkg + " (module v" + moduleVersion()
                     + ", API 102)");
 
             if ("com.realtech.xiaocan".equals(pkg)) {

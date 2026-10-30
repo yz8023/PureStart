@@ -19,7 +19,7 @@ import java.util.IdentityHashMap;
 import java.util.Set;
 
 /**
- * UniversalAdHook: 通用去广告引擎（v15.0.2 强化版）
+ * UniversalAdHook: 通用去广告引擎（强化版）
  *
  * 三层拦截，全部经 HookGate 按细分子项开关判定：
  *  ① Activity.onCreate —— 广告 SDK 页面直接关闭（绝不误关启动器）；

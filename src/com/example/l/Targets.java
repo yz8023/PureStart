@@ -4,7 +4,7 @@ package com.example.l;
  * 目标应用清单 —— 单一事实来源（纯数据类）。
  *
  * 为什么独立成类：设置页运行在模块自身的普通进程里，该进程没有 libxposed
- * 运行时（LSPosed 只把 API 注入目标应用）。v15.0.7 曾因设置页直接引用
+ * 运行时（LSPosed 只把 API 注入目标应用）。早期版本曾因设置页直接引用
  * Main.TARGETS，导致加载 Main → 解析其父类 XposedModule →
  * NoClassDefFoundError 崩溃。UI 类与 Hook 类必须彻底隔离，本类不得引用
  * Main / XiaoCanHook / UniversalAdHook / DexFinder / libxposed 任何符号。

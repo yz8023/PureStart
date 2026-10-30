@@ -1738,6 +1738,15 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         }
     }
 
+    /** P0-2：版本号运行时取自 PackageManager（唯一来源 Manifest），不硬编码 */
+    private String versionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Throwable t) {
+            return "unknown";
+        }
+    }
+
     /** 占位页面：标题 + 副标题 + 卡片 */    /** 占位页面：标题 + 副标题 + 卡片 */
     /** 拓展页：激活指引 + 配置备份/恢复 + 关于（真实可用功能） */
     private View makeExtensionPage() {
@@ -1835,7 +1844,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         about.setPadding((int) (18 * dp), (int) (16 * dp), (int) (18 * dp), (int) (16 * dp));
         String[] infos = {
                 "开源地址", "github.com/yz8023/PureStart",
-                "模块版本", "v" + BuildVersion.VERSION_NAME + " (ModKit Edition)",
+                "模块版本", "v" + versionName() + " (ModKit Edition)",
                 "Hook 接口", "libxposed API 102（Modern Xposed）",
                 "构建时间", BuildInfo.BUILD_TIME,
         };

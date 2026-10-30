@@ -8,7 +8,7 @@ import android.content.pm.PackageManager;
 import android.util.Log;
 
 /**
- * 桌面图标恢复入口（修复 v15.0.6 缺陷：隐藏图标后无法再进入模块）。
+ * 桌面图标恢复入口（修复早期缺陷：隐藏图标后无法再进入模块）。
  *
  * 隐藏图标后 LSPosed 的「打开」与系统启动意图都会失效，此前没有任何恢复通道。
  * 现提供常驻 exported 广播：
