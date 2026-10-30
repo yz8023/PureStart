@@ -10,16 +10,20 @@ import android.graphics.RectF;
 import android.widget.LinearLayout;
 
 /**
- * 全局液态玻璃卡片（View 近似）—— 对标 yz8023/ui 模板 Glass.kt 的 liquidGlass：
+ * 全局液态玻璃卡片（View 近似）—— 对标 yz8023/ui 模板 Glass.kt 的 liquidGlass。
  *
- *   1. 采样层：裁取卡片当前屏幕位置背后的模糊极光背景（View 体系无法实时
- *      采样任意图层，以「背景位图按窗口坐标裁剪」近似 backdrop 采样）；
- *   2. 染色层：surfaceContainer @ (glassTintAlpha + opacity × 0.04)，模板同款公式，
- *      卡片保持高通透（玻璃质感来自背景折射而非蒙层）；
- *   3. 折射棱光：1.5dp 白色内棱，强度随 glassRefraction（透镜折射的 View 近似）；
- *   4. 高光描边：1dp 白色镜面棱 @ glassBorderAlpha；
- *   5. 无背景可用（弹窗独立窗口 / 首帧未布局）时退化为半透明蒙层 ——
- *      模板对独立窗口弹窗同样是降级为 tint（跨窗无法采样 backdrop）。
+ * 参数与模板设置页（SettingsScreen.kt「动效」区）一一对应：
+ *  - 模糊强度 glassBlurRadiusDp      → 采样背景的磨砂档位
+ *  - 折射高度 glassRefractionHeightDp → 边缘棱光厚度（透镜边缘高度的 View 近似）
+ *  - 折射幅度 glassRefractionAmountDp → 采样层放大（透镜内壁纸内容偏移的 View 近似）
+ *  - 玻璃染色 glassTintAlpha          → 染色层（Glass.kt: tintAlpha + opacity×0.04）
+ *  - 高光边框 glassBorderAlpha        → 1dp 镜面棱
+ *  - 色差折射 glassChromaticAberration→ 棱光 RGB 色散（View 近似）
+ *
+ * 逐层：①按卡片实时窗口位置裁剪模糊背景（backdrop 采样近似）
+ *      ②染色层 ③折射棱光(+色散) ④高光描边 ⑤无背景时退化蒙层。
+ * 底栏软捕获期间（isGlassCapturePass）只画蒙层 —— 细节反正会被底栏磨砂掉，
+ * 跳过采样与描边可把滑动帧开销压回实色卡片水平（滑动卡顿修复）。
  */
 public class GlassCardView extends LinearLayout {
 
@@ -32,9 +36,12 @@ public class GlassCardView extends LinearLayout {
         float glassFallbackAlpha();
         int glassSurfaceColor();
         int glassRimColor();
-        float glassRefraction();
+        float glassPrismScale();
+        int glassRefractionAmountDp();
+        boolean glassChromaticEnabled();
         int glassBlurDp();
         Paint glassCardSamplePaint();
+        boolean isGlassCapturePass();
     }
 
     private final Host host;
@@ -65,12 +72,20 @@ public class GlassCardView extends LinearLayout {
         c.save();
         c.clipPath(clipPath);
 
+        // 底栏软捕获期间：只画退化蒙层（细节会被底栏磨砂掉，跳过采样/描边省 CPU）
+        if (host != null && host.isGlassCapturePass()) {
+            int fbA = Math.round(host.glassFallbackAlpha() * 255f);
+            c.drawColor((fbA << 24) | (host.glassSurfaceColor() & 0xFFFFFF));
+            c.restore();
+            return;
+        }
+
         Bitmap bmp = null;
         if (host != null && isAttachedToWindow() && isShown()) {
             bmp = host.glassBackdropSample(host.glassBlurDp());
         }
         if (bmp != null) {
-            // ① 采样层：按卡片实时窗口位置裁剪模糊背景（滚动时随动）
+            // ① 采样层：按卡片实时窗口位置裁剪模糊背景（滚动随动）
             getLocationInWindow(loc);
             float sx = bmp.getWidth() / (float) Math.max(1, host.glassBackdropWidth());
             float sy = bmp.getHeight() / (float) Math.max(1, host.glassBackdropHeight());
@@ -80,10 +95,13 @@ public class GlassCardView extends LinearLayout {
                     Math.min(bmp.getWidth(), Math.round((loc[0] + w) * sx)),
                     Math.min(bmp.getHeight(), Math.round((loc[1] + h) * sy)));
             if (src.right > src.left && src.bottom > src.top) {
-                dst.set(0, 0, w, h);
+                // 折射幅度 → 采样层轻微放大（透镜内壁纸内容偏移的 View 近似，20dp ≈ 1.05×）
+                float mag = 1f + host.glassRefractionAmountDp() / 400f;
+                float gw = w * mag, gh = h * mag;
+                dst.set((w - gw) / 2f, (h - gh) / 2f, (w + gw) / 2f, (h + gh) / 2f);
                 c.drawBitmap(bmp, src, dst, host.glassCardSamplePaint());
             }
-            // ② 染色层（模板 backdrop 路径公式）
+            // ② 染色层（模板 backdrop 路径公式：glassTintAlpha + opacity × 0.04）
             int tintA = Math.round(host.glassCardTintAlpha() * 255f);
             c.drawColor((tintA << 24) | (host.glassSurfaceColor() & 0xFFFFFF));
         } else {
@@ -94,14 +112,28 @@ public class GlassCardView extends LinearLayout {
         }
         c.restore();
 
-        // ③ 折射棱光：1.5dp 白色内棱，强度 × glassRefraction（透镜的 View 近似）
-        float refr = host != null ? host.glassRefraction() : 0f;
-        if (refr > 0.01f) {
+        // ③ 折射棱光：厚度随折射高度（15dp=1.5dp 标准棱，40dp=3dp 厚棱）
+        float prism = host != null ? host.glassPrismScale() : 0f;
+        if (prism > 0.01f) {
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(1.5f * density);
+            paint.setStrokeWidth(Math.min(3f, 1.5f * prism) * density);
             paint.setColor(0xFFFFFFFF);
-            paint.setAlpha(Math.round(0.28f * 255f * refr));
+            paint.setAlpha(Math.round(0.28f * 255f * Math.min(1f, prism)));
             c.drawRoundRect(rect, r, r, paint);
+
+            // 色差折射：棱光上叠加 RGB 色散描边（模板 chromaticAberration 的 View 近似）
+            if (host.glassChromaticEnabled()) {
+                int ca = Math.round(0.10f * 255f * Math.min(1f, prism));
+                float inset = 0.5f * density;
+                paint.setStrokeWidth(1f * density);
+                paint.setAlpha(ca);
+                paint.setColor(0xFFEF4444);   // 红
+                c.drawRoundRect(shrink(rect, 0f), r, r, paint);
+                paint.setColor(0xFF22C55E);   // 绿
+                c.drawRoundRect(shrink(rect, inset), r, r, paint);
+                paint.setColor(0xFF3B82F6);   // 蓝
+                c.drawRoundRect(shrink(rect, 2 * inset), r, r, paint);
+            }
         }
 
         // ④ 高光描边：1dp 白色镜面棱 @ glassBorderAlpha
@@ -110,4 +142,15 @@ public class GlassCardView extends LinearLayout {
         paint.setColor(host != null ? host.glassRimColor() : 0x33FFFFFF);
         c.drawRoundRect(rect, r, r, paint);
     }
+
+    private static RectF shrink(RectF r, float inset) {
+        tmp.set(r);
+        if (inset > 0f) {
+            tmp.inset(inset, inset);
+            if (tmp.width() <= 0 || tmp.height() <= 0) tmp.set(r);
+        }
+        return tmp;
+    }
+
+    private static final RectF tmp = new RectF();
 }

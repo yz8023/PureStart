@@ -179,6 +179,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     private int barSurfaceColor = 0xF0F0F4;          // 当前主题的 surfaceContainer 底色
     private final Paint cardSamplePaint = new Paint(
             Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);   // 卡片采样画笔（vibrancy 随动）
+    private volatile boolean glassCapturePass;   // 底栏软捕获期间：卡片只画蒙层（省 CPU）
     private BackdropView backdrop;           // 背景层引用
     private boolean blurBusy;                // 捕获中标志（防重入）
     private long lastGlassMs;                // 上次玻璃重捕时刻（节流用）
@@ -464,13 +465,13 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
                     capPaint.setAlpha((int) (0.03f * 255 * p));
                     c.drawRoundRect(capRect, r, r, capPaint);
                 }
-                // ③ 折射近似（View 无透镜）：refraction 驱动边缘亮棱强度
-                float refr = glassRefraction();
-                if (refr > 0.01f) {
+                // ③ 折射近似（View 无透镜）：折射高度滑杆驱动边缘亮棱厚度（15dp=标准）
+                float prism = glassPrismScale();
+                if (prism > 0.01f) {
                     capPaint.setStyle(Paint.Style.STROKE);
-                    capPaint.setStrokeWidth(1.5f * dp);
+                    capPaint.setStrokeWidth(Math.min(3f, 1.5f * prism) * dp);
                     capPaint.setColor(0xFFFFFFFF);
-                    capPaint.setAlpha((int) (0.28f * 255 * refr));
+                    capPaint.setAlpha((int) (0.28f * 255 * Math.min(1f, prism)));
                     c.drawRoundRect(capRect, r, r, capPaint);
                 }
                 // ④ 高光描边 1dp，alpha = 0.75×p（模板 Highlight.Default.copy(alpha = pressProgress)）
@@ -699,9 +700,9 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         return clamp(hookPrefs().getInt("glass_opacity", 55) / 100f, 0f, 1f);
     }
 
-    /** 玻璃细则：模糊半径 dp → 5×5 采样间距；0 = 清晰通透（模板 blur(4dp)） */
+    /** 模糊强度滑杆（模板 0..40dp，默认 0）：dp → 5×5 采样间距；0 = 清晰通透（免 25 抽头） */
     private int fgBlurStep() {
-        return (int) clamp(Math.round(hookPrefs().getInt("glass_blur", 4)), 0, 12);
+        return (int) clamp(Math.round(hookPrefs().getInt("glass_blur", 0) / 4f), 0, 10);
     }
 
     /** 玻璃细则：动效阻尼 → 全部弹簧 DampedRatio 缩放（模板 运动.kt 公式） */
@@ -1271,14 +1272,25 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         glassSectionContent = new LinearLayout(this);
         glassSectionContent.setOrientation(LinearLayout.VERTICAL);
         glassSectionContent.setPadding((int) (14 * dp), 0, (int) (14 * dp), (int) (12 * dp));
-        glassSliderRow(glassSectionContent, "玻璃不透明度", "glass_opacity", 0, 100, 55, "%");
-        glassSliderRow(glassSectionContent, "玻璃模糊半径", "glass_blur", 0, 40, 4, "dp");
-        glassSliderRow(glassSectionContent, "折射强度", "glass_refraction", 0, 100, 100, "%");
-        glassSliderRow(glassSectionContent, "高光描边", "glass_border", 0, 80, 20, "%");
-        glassSliderRow(glassSectionContent, "动效阻尼", "glass_damping", 0, 100, 50, "%");
-        glassSwitchRow(glassSectionContent, "鲜艳增强 (Vibrancy)", "glass_vibrancy");
+        // 参数、范围、默认值、副标题文案均与模板 SettingsScreen.kt「动效」区一一对应
+        glassSliderRow(glassSectionContent, "动效阻尼", "glass_damping", 0, 100, 50, "%",
+                v -> "全局弹簧阻尼：" + v + "%，越低越弹");
+        glassSliderRow(glassSectionContent, "模糊强度", "glass_blur", 0, 40, 0, "dp",
+                v -> "背景采样模糊：" + v + "dp");
+        glassSliderRow(glassSectionContent, "折射高度", "glass_refract_height", 0, 40, 15, "dp",
+                v -> "液态透镜边缘高度：" + v + "dp");
+        glassSliderRow(glassSectionContent, "折射幅度", "glass_refract_amount", 0, 60, 20, "dp",
+                v -> "壁纸内容偏移幅度：" + v + "dp");
+        glassSliderRow(glassSectionContent, "玻璃染色", "glass_tint_alpha", 0, 35, 8, "%",
+                v -> "白色玻璃涂层：" + v + "%");
+        glassSliderRow(glassSectionContent, "高光边框", "glass_border", 0, 45, 20, "%",
+                v -> "玻璃边缘强度：" + v + "%");
+        glassSwitchRow(glassSectionContent, "增强色彩层次", "glass_vibrancy",
+                "提升玻璃后的壁纸色彩通透感");
+        glassSwitchRow(glassSectionContent, "色差折射", "glass_chromatic",
+                "在液态透镜边缘显示更明显的色散");
         TextView note = new TextView(this);
-        note.setText("View 近似说明：无透镜折射与色差，胶囊绘制于标签之下；拖动滑杆即刻在底栏与全部卡片上实时预览。");
+        note.setText("参数与 ui 项目设置页一一对应（同名同范围同默认值）。View 近似：折射高度→棱光厚度、折射幅度→采样层放大、色差→棱光 RGB 色散；无 Compose 透镜形变。拖动即刻在底栏与全部卡片上实时预览。");
         note.setTextSize(11);
         note.setTextColor(SUB);
         note.setLineSpacing(3 * dp, 1f);
@@ -1303,29 +1315,26 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         }
     }
 
-    /** 滑杆行：名称 + 当前值（强调色）+ 着色 SeekBar（改动实时预览） */
+    /** 滑杆行（模板 SliderCard 同构）：标题 + 副标题（内嵌实时值，文案照搬模板）+ 着色 SeekBar */
     private void glassSliderRow(LinearLayout box, String name, final String key,
-                                final int min, final int max, final int def, final String unit) {
+                                final int min, final int max, final int def, String unit,
+                                final java.util.function.IntFunction<String> subtitle) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(0, (int) (8 * dp), 0, (int) (8 * dp));
 
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(Gravity.CENTER_VERTICAL);
         TextView nm = new TextView(this);
         nm.setText(name);
         nm.setTextSize(14);
         nm.setTypeface(Typeface.DEFAULT_BOLD);
         nm.setTextColor(INK);
-        head.addView(nm, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        final TextView val = new TextView(this);
-        val.setTextSize(13);
-        val.setTextColor(ACCENT);
-        val.setText(hookPrefs().getInt(key, def) + unit);
-        head.addView(val);
-        row.addView(head);
+        row.addView(nm);
+        final TextView sub = new TextView(this);
+        sub.setTextSize(12);
+        sub.setTextColor(SUB);
+        sub.setPadding(0, (int) (2 * dp), 0, (int) (4 * dp));
+        sub.setText(subtitle.apply(hookPrefs().getInt(key, def)));
+        row.addView(sub);
 
         SeekBar sb = new SeekBar(this);
         sb.setMax(max - min);
@@ -1337,9 +1346,9 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
                 int v = min + p;
-                val.setText(v + unit);
+                sub.setText(subtitle.apply(v));
                 hookPrefs().edit().putInt(key, v).apply();
-                applyGlassLive();   // 实时预览：底栏透明度/模糊/描边/阻尼即时生效
+                applyGlassLive();   // 实时预览：拖动即刻生效
             }
             @Override public void onStartTrackingTouch(SeekBar s) {}
             @Override public void onStopTrackingTouch(SeekBar s) {}
@@ -1352,18 +1361,27 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
                 LinearLayout.LayoutParams.WRAP_CONTENT));
     }
 
-    /** 开关行：鲜艳增强（改动实时预览） */
-    private void glassSwitchRow(LinearLayout box, String name, final String key) {
+    /** 开关行（模板 PreferenceRow 同构）：标题 + 副标题 + Switch（改动实时预览） */
+    private void glassSwitchRow(LinearLayout box, String name, final String key, String subtitle) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, (int) (8 * dp), 0, (int) (8 * dp));
+        LinearLayout tm = new LinearLayout(this);
+        tm.setOrientation(LinearLayout.VERTICAL);
         TextView nm = new TextView(this);
         nm.setText(name);
         nm.setTextSize(14);
         nm.setTypeface(Typeface.DEFAULT_BOLD);
         nm.setTextColor(INK);
-        row.addView(nm, new LinearLayout.LayoutParams(
+        tm.addView(nm);
+        TextView sb = new TextView(this);
+        sb.setText(subtitle);
+        sb.setTextSize(12);
+        sb.setTextColor(SUB);
+        sb.setPadding(0, (int) (2 * dp), 0, 0);
+        tm.addView(sb);
+        row.addView(tm, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         android.widget.Switch sw = new android.widget.Switch(this);
         sw.setChecked(hookPrefs().getBoolean(key, true));
@@ -1412,16 +1430,21 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     @Override
     public int glassBackdropHeight() { return backdrop != null ? Math.max(1, backdrop.getHeight()) : 1; }
 
-    /** 模板 backdrop 路径染色公式：glassTintAlpha + opacity × 0.04（卡片高通透） */
-    @Override
-    public float glassCardTintAlpha() {
-        return clamp(0.08f + glassOpacity() * 0.04f, 0f, 0.45f);
+    /** 玻璃染色滑杆（模板 SettingsScreen「玻璃染色」0..0.35，默认 0.08） */
+    private float glassTintAlphaPref() {
+        return clamp(hookPrefs().getInt("glass_tint_alpha", 8) / 100f, 0f, 0.35f);
     }
 
-    /** 模板退化路径公式：0.26 + glassTintAlpha + opacity × 0.18 */
+    /** 模板 backdrop 路径染色公式（Glass.kt:181）：glassTintAlpha + opacity × 0.04 */
+    @Override
+    public float glassCardTintAlpha() {
+        return clamp(glassTintAlphaPref() + glassOpacity() * 0.04f, 0f, 0.45f);
+    }
+
+    /** 模板退化路径公式（Glass.kt:222）：0.26 + glassTintAlpha + opacity × 0.18 */
     @Override
     public float glassFallbackAlpha() {
-        return clamp(0.26f + 0.08f + glassOpacity() * 0.18f, 0f, 0.72f);
+        return clamp(0.26f + glassTintAlphaPref() + glassOpacity() * 0.18f, 0f, 0.72f);
     }
 
     @Override
@@ -1430,22 +1453,37 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     @Override
     public int glassRimColor() { return cardStrokeColor(); }
 
-    /** 玻璃细则（模板 AppChrome）：折射强度 0..1（View 近似驱动棱光强度） */
+    /** 折射高度滑杆（模板 0..40dp，默认 15）→ 棱光厚度比例：15dp=1.0 标准，40dp=2.0 厚棱 */
     @Override
-    public float glassRefraction() {
-        return clamp(hookPrefs().getInt("glass_refraction", 100) / 100f, 0f, 1f);
+    public float glassPrismScale() {
+        return clamp(hookPrefs().getInt("glass_refract_height", 15) / 15f, 0f, 2f);
+    }
+
+    /** 折射幅度滑杆（模板 0..60dp，默认 20）→ 采样层放大（透镜内容偏移的 View 近似） */
+    @Override
+    public int glassRefractionAmountDp() {
+        return (int) clamp(hookPrefs().getInt("glass_refract_amount", 20), 0, 60);
+    }
+
+    /** 色差折射开关（模板默认开）→ 棱光 RGB 色散 */
+    @Override
+    public boolean glassChromaticEnabled() {
+        return hookPrefs().getBoolean("glass_chromatic", true);
     }
 
     @Override
+    public boolean isGlassCapturePass() { return glassCapturePass; }
+
+    @Override
     public int glassBlurDp() {
-        return hookPrefs().getInt("glass_blur", 4);
+        return hookPrefs().getInt("glass_blur", 0);
     }
 
     @Override
     public Paint glassCardSamplePaint() { return cardSamplePaint; }
 
     private int cardStrokeColor() {
-        int bAlpha = Math.round(clamp(hookPrefs().getInt("glass_border", 20) / 100f, 0f, 0.8f) * 255f);
+        int bAlpha = Math.round(clamp(hookPrefs().getInt("glass_border", 20) / 100f, 0f, 0.45f) * 255f);
         return (bAlpha << 24) | 0xFFFFFF;
     }
 
@@ -1628,7 +1666,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         about.setPadding((int) (18 * dp), (int) (16 * dp), (int) (18 * dp), (int) (16 * dp));
         String[] infos = {
                 "开源地址", "github.com/yz8023/PureStart",
-                "模块版本", "v15.0.4 (ModKit Edition)",
+                "模块版本", "v15.0.5 (ModKit Edition)",
                 "Hook 接口", "libxposed API 102（Modern Xposed）",
                 "构建时间", BuildInfo.BUILD_TIME,
         };
@@ -2043,7 +2081,12 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
             }
             // 内容链：1/2 高分辨率捕获（滚动量化仅 2px → 顺滑不跳）
             glassCanvasFg[0].drawColor(0, PorterDuff.Mode.CLEAR);
-            pageContainer.draw(glassCanvasFg[0]);
+            glassCapturePass = true;   // 捕获期间卡片只画蒙层（细节会被磨砂掉 → 滑动帧省 CPU）
+            try {
+                pageContainer.draw(glassCanvasFg[0]);
+            } finally {
+                glassCapturePass = false;
+            }
             // 真·box 模糊：5×5 均匀偏移采样（模糊量与分辨率解耦 → 有磨砂、无马赛克）
             if (fgBlurCanvas != null) {
                 int w0 = glassChainFg[0].getWidth(), h0 = glassChainFg[0].getHeight();
