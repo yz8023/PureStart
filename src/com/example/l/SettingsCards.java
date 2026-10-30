@@ -185,12 +185,12 @@ final class SettingsCards {
         // 参数、范围、默认值、副标题文案均与模板 SettingsScreen.kt「动效」区一一对应
         glassSliderRow(glassSectionContent, "动效阻尼", Prefs.KEY_GLASS_DAMPING, 0, 100, 50, "%",
                 v -> "全局弹簧阻尼：" + v + "%，越低越弹");
-        glassSliderRow(glassSectionContent, "模糊强度", Prefs.KEY_GLASS_BLUR, 0, 40, 0, "a.dp",
-                v -> "背景模糊强度：" + v + "a.dp");
-        glassSliderRow(glassSectionContent, "折射高度", Prefs.KEY_GLASS_REFRACT_HEIGHT, 0, 40, 15, "a.dp",
-                v -> "液态透镜边缘高度：" + v + "a.dp");
-        glassSliderRow(glassSectionContent, "折射幅度", Prefs.KEY_GLASS_REFRACT_AMOUNT, 0, 60, 20, "a.dp",
-                v -> "壁纸内容偏移幅度：" + v + "a.dp");
+        glassSliderRow(glassSectionContent, "模糊强度", Prefs.KEY_GLASS_BLUR, 0, 40, 0, "dp",
+                v -> "背景模糊强度：" + v + "dp");
+        glassSliderRow(glassSectionContent, "折射高度", Prefs.KEY_GLASS_REFRACT_HEIGHT, 0, 40, 15, "dp",
+                v -> "液态透镜边缘高度：" + v + "dp");
+        glassSliderRow(glassSectionContent, "折射幅度", Prefs.KEY_GLASS_REFRACT_AMOUNT, 0, 60, 20, "dp",
+                v -> "壁纸内容偏移幅度：" + v + "dp");
         glassSliderRow(glassSectionContent, "玻璃染色", Prefs.KEY_GLASS_TINT_ALPHA, 0, 35, 8, "%",
                 v -> "白色玻璃涂层：" + v + "%");
         glassSliderRow(glassSectionContent, "高光边框", Prefs.KEY_GLASS_BORDER, 0, 45, 20, "%",
