@@ -1189,8 +1189,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     private boolean isHookEnabled(String pkg) {
-        // 唯一事实源 = 模块私有偏好（Hook 侧经 HookStateProvider 跨进程读取）
-        return hookPrefs().getBoolean("hook_" + pkg, true);   // 默认开启
+        return hookPrefs().getBoolean("hook_" + pkg, false);   // P0-1：默认关
     }
 
     /** 刷新底栏“应用”角标：= 已安装且勾选启用的作用域应用数；为 0 或设置页关掉角标则隐藏 */
@@ -1313,7 +1312,9 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
         if (switchKey != null) {
             android.widget.Switch sw = new android.widget.Switch(this);
-            sw.setChecked(hookPrefs().getBoolean(switchKey, true));
+            // P0-1：hook 类键（hook_/sub_）默认关（未设置=不动作）；界面功能键保持原默认
+            boolean hookKey = switchKey.startsWith("hook_") || switchKey.startsWith("sub_");
+            sw.setChecked(hookPrefs().getBoolean(switchKey, !hookKey));
             sw.setOnCheckedChangeListener((v, checked) -> {
                 hookPrefs().edit().putBoolean(switchKey, checked).apply();
                 barWrap.invalidate();      // 立即重绘（液态模糊开关即时生效）

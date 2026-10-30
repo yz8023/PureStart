@@ -46,7 +46,11 @@ public class Main extends XposedModule implements HookGate {
             { "dexfinder", "sub_dexfinder_" },
     };
 
-    /** 闸门缓存（正常 2s；降级 400ms 加速自愈）。读写均持 cfgCache 锁（多线程 Hook 安全）。 */
+    /**
+     * 闸门缓存 = 上次成功读到的配置（P0-1 语义：lastGood）。
+     * 双通道失败时不清空、直接沿用；从未成功读过任何配置 → 一律 false（fail-closed）。
+     * 正常 2s TTL；降级态 400ms 加速自愈。读写均持 cfgCache 锁（多线程 Hook 安全）。
+     */
     private final Bundle cfgCache = new Bundle();
     private long cfgAt = -2000;
     private String cfgPkg;
@@ -106,7 +110,8 @@ public class Main extends XposedModule implements HookGate {
                         synchronized (cfgCache) {
                             cfgCache.clear();
                             for (String[] sk : SUB_KEYS) {
-                                cfgCache.putBoolean(sk[0], sp.getBoolean(sk[1] + pkg, true));
+                                // P0-1：远程兜底同样默认关（未设置 = 不动作）
+                                cfgCache.putBoolean(sk[0], sp.getBoolean(sk[1] + pkg, false));
                             }
                         }
                         got = true;
@@ -135,8 +140,8 @@ public class Main extends XposedModule implements HookGate {
                 cfgChannel = channel;
             }
         }
-        // fail-closed：从未加载到任何配置时一律返回 false（用户控制权优先于拦截率）
-        if (!cfgEverLoaded && "unknown".equals(cfgChannel)) return false;
+        // P0-1 fail-closed：从未成功读到过配置（无 lastGood）→ 一律 false（含全部子项）
+        if (!cfgEverLoaded) return false;
         return readGate(key, false);
     }
 

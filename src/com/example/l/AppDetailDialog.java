@@ -143,7 +143,7 @@ public final class AppDetailDialog {
         row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1f));
 
         Switch sw = new Switch(context);
-        sw.setChecked(sp.getBoolean(key, true));
+        sw.setChecked(sp.getBoolean(key, false));
         sw.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {

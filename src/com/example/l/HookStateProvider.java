@@ -31,14 +31,14 @@ public class HookStateProvider extends ContentProvider {
         Bundle b = new Bundle();
         if (arg == null) return b;
         if ("enabled".equals(method)) {
-            b.putBoolean("v", readPref("hook_" + arg, true));
+            b.putBoolean("v", readPref("hook_" + arg, false));
         } else if ("config".equals(method)) {
             // 细分子项开关一并返回（Hook 侧 2s 缓存，回调触发时查询）
-            b.putBoolean("enabled",   readPref("hook_" + arg, true));
-            b.putBoolean("splash",    readPref("sub_splash_" + arg, true));
-            b.putBoolean("feed",      readPref("sub_feed_" + arg, true));
-            b.putBoolean("popup",     readPref("sub_popup_" + arg, true));
-            b.putBoolean("dexfinder", readPref("sub_dexfinder_" + arg, true));
+            b.putBoolean("enabled",   readPref("hook_" + arg, false));
+            b.putBoolean("splash",    readPref("sub_splash_" + arg, false));
+            b.putBoolean("feed",      readPref("sub_feed_" + arg, false));
+            b.putBoolean("popup",     readPref("sub_popup_" + arg, false));
+            b.putBoolean("dexfinder", readPref("sub_dexfinder_" + arg, false));
         }
         return b;
     }
