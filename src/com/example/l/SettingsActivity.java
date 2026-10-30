@@ -56,20 +56,12 @@ import android.widget.TextView;
  */
 public class SettingsActivity extends Activity implements GlassCardView.Host {
 
-    private static final String[] TAB_NAMES = {"首页", "应用", "拓展", "设置"};
-    private static final int[] TAB_ICON_IDLE = {
-            R.drawable.ic_tab_home, R.drawable.ic_tab_apps,
-            R.drawable.ic_tab_extension, R.drawable.ic_tab_settings};
-    private static final int[] TAB_ICON_ACTIVE = {
-            R.drawable.ic_tab_home_fill, R.drawable.ic_tab_apps,
-            R.drawable.ic_tab_extension_fill, R.drawable.ic_tab_settings_fill};
-
     // ===== 主题色（applyTheme() 按“外观”选择赋值：跟随系统/浅色/深色） =====
     private int PAGE_BG;
     int ACCENT;
     int INK;
     int SUB;
-    private int IDLE_TINT;
+    int IDLE_TINT;
     int BAR_BG;
     private int RIPPLE;
     int STATUS_GREEN;
@@ -84,11 +76,6 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     boolean darkMode;   // 当前解析结果是否深色
     FrameLayout pageContainer;
     FrameLayout barWrap;
-    private LinearLayout bar;
-    private LinearLayout[] tabItems;
-    private ImageView[] tabIcons;
-    private TextView[] tabLabels;
-    private TextView scopeBadge;             // "应用"Tab 作用域数量角标（读 APK 内 scope.list）
     List<AppEntry> appsData;         // 应用页数据（后台加载）
     private android.content.SharedPreferences hookPrefs;   // 与 Hook 侧共享的开关偏好
     /** 各作用域应用的功能描述（“应用”页卡片展示用；新增 Hook 目标时在此加一行） */
@@ -114,62 +101,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         APP_DESC.put("com.dragon.read", "红果免费短剧 · 开屏与激励广告跳过");
         APP_DESC.put("com.baidu.netdisk", "百度网盘 · 启动页与营销弹窗净化");
     }
-    private View pill;                       // 活动玻璃胶囊（56dp，槽位空间浮点驱动）
-    /** 模板 阻尼拖拽动画 的五组独立弹簧（View 版物理积分） */
-    private static final class Spring {
-        float value, vel, target;
-        float stiffness, dampingRatio;
-        Spring(float v, float s, float d) { value = target = v; stiffness = s; dampingRatio = d; }
-        void step(float dt) {
-            float omega = (float) Math.sqrt(stiffness);
-            float a = stiffness * (target - value) - 2f * dampingRatio * omega * vel;
-            vel += a * dt;
-            value += vel * dt;
-        }
-        boolean settled() { return Math.abs(target - value) < 0.0015f && Math.abs(vel) < 0.004f; }
-    }
-    private final Spring slotSpring = new Spring(0f, 1000f, 1f);   // 胶囊位置（槽位空间 0..n-1）
-    private final Spring pressSpring = new Spring(0f, 1000f, 1f);  // 按压进度 0..1
-    private final Spring velSpring = new Spring(0f, 300f, 0.5f);   // 速度反馈（保体积拉伸）
-    private final Spring scaleXSpring = new Spring(1f, 250f, 0.6f);// 胶囊 X 缩放
-    private final Spring scaleYSpring = new Spring(1f, 250f, 0.7f);// 胶囊 Y 缩放
-    private final Spring offsetSpring = new Spring(0f, 300f, 1f);  // 面板微位移（拖动整体轻移）
-    /** 模板 pressedScale = 78f / 56f（按压时活动胶囊放大） */
-    private static final float PRESSED_SCALE = 78f / 56f;
-    private float pressProgress;             // 按压进度渲染值
-    private float tabWidthPx, totalWidthPx;  // 槽位宽 / 底栏内容宽
-    private boolean dockPressed, dockDragging;
-    private float dockDownX, dockLastX, dockLastT, dockVel, touchX;
-    private boolean choreoRunning;
-    private final Choreographer.FrameCallback springFrame = new Choreographer.FrameCallback() {
-        private long lastNanos;
-        @Override public void doFrame(long frameTimeNanos) {
-            if (isFinishing()) { choreoRunning = false; return; }
-            float dt = lastNanos == 0f ? 1f / 60f
-                    : (float) Math.min(1f / 30f, Math.max(1f / 240f, (frameTimeNanos - lastNanos) / 1e9));
-            lastNanos = frameTimeNanos;
-            slotSpring.step(dt); pressSpring.step(dt); velSpring.step(dt);
-            scaleXSpring.step(dt); scaleYSpring.step(dt); offsetSpring.step(dt);
-            renderDock();
-            boolean active = !slotSpring.settled() || !pressSpring.settled() || !velSpring.settled()
-                    || !scaleXSpring.settled() || !scaleYSpring.settled() || !offsetSpring.settled();
-            if (active) {
-                Choreographer.getInstance().postFrameCallback(this);
-            } else {
-                choreoRunning = false;
-                lastNanos = 0;
-            }
-        }
-    };
-    private void kickSprings() {
-        renderDock();
-        if (!choreoRunning) {
-            choreoRunning = true;
-            Choreographer.getInstance().postFrameCallback(springFrame);
-        }
-    }
-    private final Path capsuleClip = new Path();     // 胶囊内阴影裁剪（独立于底栏 glassClip）
-    private GradientDrawable barBgDrawable;          // 底栏容器底色引用（实时预览改透明度）
+    GradientDrawable barBgDrawable;          // 底栏容器底色引用（实时预览改透明度）
     private int barSurfaceColor = 0xF0F0F4;          // 当前主题的 surfaceContainer 底色
     private final Paint cardSamplePaint = new Paint(
             Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);   // 卡片背景裁剪画笔（vibrancy 随动）
@@ -179,7 +111,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     final AppsPage appsPage = new AppsPage(this);      // 「应用」页组装（P1-2 拆出）
     final ExtensionPage extPage = new ExtensionPage(this); // 「拓展」页组装（P1-2 拆出）
     final SettingsCards settingsPage = new SettingsCards(this); // 「设置」页组装（P1-2 拆出）
-    private int selectedTab = 0;
+    final LiquidBar liquidBar = new LiquidBar(this);  // 液态玻璃底栏（P1-2 拆出）
     float dp;
 
     /** 解析外观模式（跟随系统/浅色/深色）并赋值主题色；必须在 onCreate 最先调用 */
@@ -275,7 +207,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         applyTheme();   // 最先解析主题（跟随系统/浅色/深色）
         super.onCreate(savedInstanceState);
         dp = getResources().getDisplayMetrics().density;
-        applyMotionTuning();          // 玻璃细则：动效阻尼 → 全部弹簧
+        liquidBar.applyMotionTuning(); // 玻璃细则：动效阻尼 → 全部弹簧
         applyVibrancy();              // 玻璃细则：鲜艳增强 → 采样背景饱和度
 
         // 状态栏与页面整合：透明状态栏 + 内容延伸到状态栏下方
@@ -319,234 +251,8 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
 
 
-        // ---- 液态玻璃底栏（完全对齐模板 LiquidBottomTabs：64dp 胶囊容器 + 4dp 内衬）----
-        barWrap = new FrameLayout(this) {
-            @Override
-            protected void onDraw(Canvas canvas) {
-                engine.drawBarGlass(canvas, pressProgress, slotSpring.value,
-                        tabWidthPx, bar.getX());   // 实时磨砂画在背景之上、图标之下
-            }
-        };
-        barWrap.setWillNotDraw(false);   // ViewGroup 默认不调 onDraw，必须打开
-        GradientDrawable barBg = new GradientDrawable();
-        barBgDrawable = barBg;   // 玻璃细则实时预览：留底便于即时改透明度
-        // 模板容器公式：surfaceContainer.copy(alpha = 0.10f + opacity * 0.55f)
-        barBg.setColor(BAR_BG);
-        barBg.setCornerRadius(32 * dp);   // 64dp 全胶囊半径
-        // 模板 Highlight.Default.copy(alpha = 0.75f)：1dp 白色镜面高光棱
-        barBg.setStroke((int) (1f * dp), 0xBFFFFFFF);
-        barWrap.setBackground(barBg);
-        // 模板 Shadow(radius = 10dp, Black, alpha 0.1 浅色 / 0.2 深色)
-        barWrap.setElevation(10 * dp);
-        barWrap.setClipChildren(false);   // 关闭裁剪：胶囊按压放大 / 过冲时能跳出容器
-        barWrap.setClipToPadding(false);
-        int barPad = (int) (4 * dp);      // 模板 padding(4dp)
-        barWrap.setPadding(barPad, barPad, barPad, barPad);
-
-        // ==== 底栏手势（模板 阻尼拖拽动画：按压 / 槽位空间拖拽 / 松手吸附）====
-        barWrap.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent ev) {
-                switch (ev.getActionMasked()) {
-                    case MotionEvent.ACTION_DOWN:
-                        dockDownX = touchX = ev.getX();
-                        dockLastX = ev.getX();
-                        dockLastT = android.os.SystemClock.uptimeMillis();
-                        dockVel = 0f;
-                        dockDragging = false;
-                        // 点击位置直接定位：底栏任意位置按下，胶囊立即跳到手指槽位
-                        dockPressed = tabWidthPx > 0;
-                        if (dockPressed) {
-                            // 胶囊中心对准手指（修复左缘对齐造成的半槽偏移）
-                            float slot = clamp((ev.getX() - bar.getX()) / tabWidthPx - 0.5f,
-                                    0f, tabItems.length - 1f);
-                            slotSpring.value = slotSpring.target = slot;
-                            slotSpring.vel = 0f;
-                            pressSpring.target = 1f;
-                            scaleXSpring.target = PRESSED_SCALE;
-                            scaleYSpring.target = PRESSED_SCALE;
-                            velSpring.target = 0f;
-                            kickSprings();
-                        }
-                        return true;
-                    case MotionEvent.ACTION_MOVE:
-                        touchX = ev.getX();
-                        float dx = ev.getX() - dockLastX;
-                        long now = android.os.SystemClock.uptimeMillis();
-                        float dtSec = Math.max(1f, now - dockLastT) / 1000f;
-                        dockVel = 0.75f * dockVel + 0.25f * (dx / dtSec);
-                        dockLastX = ev.getX();
-                        dockLastT = now;
-                        if (dockPressed) {
-                            if (Math.abs(ev.getX() - dockDownX) > 2 * dp) dockDragging = true;
-                            // 槽位空间浮点驱动：dx → dx / tabWidth（模板 F08 规则，禁止像素坐标反推）
-                            // 任意起点、全程 1:1 跟手（点击即定位 + 拖动即跟随）
-                            slotSpring.value = clamp(slotSpring.value + dx / tabWidthPx,
-                                    0f, tabItems.length - 1f);
-                            slotSpring.target = slotSpring.value;
-                            slotSpring.vel = 0f;
-                            // 面板微位移累积（模板 offsetAnimation.snapTo）
-                            offsetSpring.value = clamp(offsetSpring.value + dx,
-                                    -totalWidthPx, totalWidthPx);
-                            // 速度反馈（模板 VelocityTracker → velSpring）
-                            velSpring.value = clamp(dockVel / 3000f, -1.5f, 1.5f);
-                            kickSprings();
-                        }
-                        return true;
-                    case MotionEvent.ACTION_UP:
-                    case MotionEvent.ACTION_CANCEL:
-                        if (dockPressed && tabWidthPx > 0) {
-                            // 松手吸附最近槽位（点击定位与拖动跟随统一走这里）
-                            int target = (int) clamp(Math.round(slotSpring.value), 0, tabItems.length - 1);
-                            if (target != selectedTab) selectTab(target);
-                            else slotSpring.target = selectedTab;
-                            velSpring.value = clamp(dockVel / 3000f, -1.5f, 1.5f);
-                            velSpring.target = 0f;
-                            offsetSpring.target = 0f;
-                        }
-                        dockPressed = false;
-                        dockDragging = false;
-                        pressSpring.target = 0f;
-                        scaleXSpring.target = 1f;
-                        scaleYSpring.target = 1f;
-                        kickSprings();
-                        v.performClick();
-                        return true;
-                }
-                return false;
-            }
-        });
-
-                // 活动玻璃胶囊（模板第 3 层：56dp 移动透镜；View 近似 = tint + 高光棱 + 内阴影）
-        pill = new View(this) {
-            private final Paint capPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            private final RectF capRect = new RectF();
-            @Override
-            protected void onDraw(Canvas c) {
-                int w = getWidth(), h = getHeight();
-                if (w == 0 || h == 0) return;
-                float p = pressProgress;
-                float r = h / 2f;
-                capRect.set(0, 0, w, h);
-                // ① 基础 tint：浅色 Black10% / 深色 White10%，按压时淡出（模板 onDrawSurface）
-                capPaint.setStyle(Paint.Style.FILL);
-                capPaint.setColor(darkMode ? 0xFFFFFFFF : 0xFF000000);
-                capPaint.setAlpha((int) (0.10f * 255 * (1f - p)));
-                c.drawRoundRect(capRect, r, r, capPaint);
-                // ② 按压加深 Black 3%×p（模板 drawRect(Black.copy(0.03f * progress))）
-                if (p > 0.01f) {
-                    capPaint.setColor(0xFF000000);
-                    capPaint.setAlpha((int) (0.03f * 255 * p));
-                    c.drawRoundRect(capRect, r, r, capPaint);
-                }
-                // ③ 折射近似（View 无透镜）：折射高度滑杆驱动边缘亮棱厚度（15dp=标准）
-                float prism = glassPrismScale();
-                if (prism > 0.01f) {
-                    capPaint.setStyle(Paint.Style.STROKE);
-                    capPaint.setStrokeWidth(Math.min(3f, 1.5f * prism) * dp);
-                    capPaint.setColor(0xFFFFFFFF);
-                    capPaint.setAlpha((int) (0.28f * 255 * Math.min(1f, prism)));
-                    c.drawRoundRect(capRect, r, r, capPaint);
-                }
-                // ④ 高光描边 1dp，alpha = 0.75×p（模板 Highlight.Default.copy(alpha = pressProgress)）
-                if (p > 0.01f) {
-                    capPaint.setStyle(Paint.Style.STROKE);
-                    capPaint.setStrokeWidth(1f * dp);
-                    capPaint.setColor(0xFFFFFFFF);
-                    capPaint.setAlpha((int) (0.75f * 255 * p));
-                    c.drawRoundRect(capRect, r, r, capPaint);
-                }
-                // ⑤ 内阴影 8dp×p（模板 InnerShadow(radius = 8dp * progress)，近似为上沿暗带）
-                if (p > 0.01f) {
-                    c.save();
-                    capsuleClip.reset();
-                    capsuleClip.addRoundRect(capRect, r, r, Path.Direction.CW);
-                    c.clipPath(capsuleClip);
-                    capPaint.setStyle(Paint.Style.FILL);
-                    capPaint.setShader(new LinearGradient(0, 0, 0, Math.max(1f, 8 * dp * p),
-                            0x4D000000, 0x00000000, Shader.TileMode.CLAMP));
-                    c.drawRect(0, 0, w, 8 * dp * p, capPaint);
-                    capPaint.setShader(null);
-                    c.restore();
-                }
-            }
-        };
-        pill.setAlpha(0f);
-        barWrap.addView(pill, new FrameLayout.LayoutParams(
-                (int) (56 * dp), FrameLayout.LayoutParams.MATCH_PARENT));
-
-        bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        barWrap.addView(bar, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT));
-
-        tabItems = new LinearLayout[4];
-        tabIcons = new ImageView[4];
-        tabLabels = new TextView[4];
-        for (int i = 0; i < 4; i++) {
-            LinearLayout item = new LinearLayout(this);
-            item.setOrientation(LinearLayout.VERTICAL);
-            item.setGravity(Gravity.CENTER);
-            item.setMinimumWidth((int) (76 * dp));   // 模板 defaultMinSize(minWidth = 76dp)
-
-            // 图标包一层 FrameLayout：四个 Tab 统一占位 26dp，应用 Tab 可叠角标
-            ImageView icon = new ImageView(this);
-            icon.setImageResource(i == 0 ? TAB_ICON_ACTIVE[i] : TAB_ICON_IDLE[i]);
-            icon.setColorFilter(i == 0 ? ACCENT : IDLE_TINT);
-            FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(
-                    (int) (24 * dp), (int) (24 * dp), Gravity.CENTER);
-            FrameLayout iconWrap = new FrameLayout(this);
-            iconWrap.addView(icon, iconLp);
-            if (i == 1) {
-                // 作用域角标：初始隐藏，后台读 scope.list 后有作用域应用才显示数量
-                TextView badge = new TextView(this);
-                badge.setVisibility(View.GONE);
-                badge.setTextSize(9);
-                badge.setTextColor(0xFFFFFFFF);
-                badge.setGravity(Gravity.CENTER);
-                badge.setIncludeFontPadding(false);
-                GradientDrawable badgeBg = new GradientDrawable();
-                badgeBg.setColor(BADGE_RED);
-                badgeBg.setCornerRadius(7 * dp);
-                badge.setBackground(badgeBg);
-                iconWrap.addView(badge, new FrameLayout.LayoutParams(
-                        (int) (14 * dp), (int) (14 * dp),
-                        Gravity.TOP | Gravity.END));
-                scopeBadge = badge;
-            }
-            LinearLayout.LayoutParams wrapLp = new LinearLayout.LayoutParams(
-                    (int) (26 * dp), (int) (26 * dp));
-            wrapLp.gravity = Gravity.CENTER_HORIZONTAL;
-            item.addView(iconWrap, wrapLp);
-
-            TextView label = new TextView(this);
-            label.setText(TAB_NAMES[i]);
-            label.setTextSize(11f);
-            label.setTextColor(i == 0 ? ACCENT : IDLE_TINT);
-            label.setGravity(Gravity.CENTER_HORIZONTAL);   // 修复：文字水平居中
-            label.setPadding(0, (int) (1 * dp), 0, 0);   // 模板 spacedBy(1dp)
-            item.addView(label);   // 垂直 LinearLayout 默认 MATCH_PARENT 宽，配合 gravity 居中
-
-            // 模板 LiquidBottomTab：无涟漪无按压缩小，按压反馈全部由活动胶囊承担，
-            // 点击 / 拖拽统一由 barWrap 手势处理（槽位空间）
-            tabItems[i] = item;
-            tabIcons[i] = icon;
-            tabLabels[i] = label;
-            bar.addView(item, new LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
-        }
-
-        // 作用域角标初始值：由“应用”页加载数据后统一刷新（见 updateScopeBadge）
-        updateScopeBadge();
-
-        FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, (int) (64 * dp));   // 模板 height(64dp)
-        barLp.gravity = Gravity.BOTTOM;
-        barLp.leftMargin = (int) (14 * dp);
-        barLp.rightMargin = (int) (14 * dp);
-        barLp.bottomMargin = (int) (14 * dp);   // 模板 padding(bottom = 14dp)
-        root.addView(barWrap, barLp);
+        // ---- 液态玻璃底栏（P1-2 起由 LiquidBar 组装）----
+        liquidBar.build(root);
 
         setContentView(root);
 
@@ -561,48 +267,10 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         // 首帧先不重捕：延迟 120ms 再做首次玻璃重捕，避免冷启动前两帧被拖慢
         barWrap.postDelayed(this::requestGlassRefresh, 120);
 
-        // 布局完成后：胶囊宽度 = 槽位宽（模板 tabWidthPx = 内容宽 / 标签数），槽位弹簧就位
-        pill.post(() -> {
-            tabWidthPx = tabItems[0].getWidth();
-            totalWidthPx = bar.getWidth();
-            FrameLayout.LayoutParams plp = (FrameLayout.LayoutParams) pill.getLayoutParams();
-            plp.width = Math.round(tabWidthPx);
-            pill.setLayoutParams(plp);
-            slotSpring.value = slotSpring.target = selectedTab;
-            renderDock();
-            pill.animate().alpha(1f).setDuration(260).start();
-        });
-    }
-
-    /** Tab 切换：滑动指示条 + 换图标 + 弹跳 + 颜色渐变 + 页面淡入淡出 */
-    private void selectTab(int idx) {
-        if (idx == selectedTab) return;
-        int prev = selectedTab;
-        selectedTab = idx;
-        // 连点风暴期间玻璃零开销：每次点击重置 350ms 定时，停止点击后才补刷一次
-        barWrap.removeCallbacks(engine.settleTask);
-        barWrap.postDelayed(engine.settleTask, 350);
-        if (idx == 1) appsPage.loadAppsAsync();   // 每次切到"应用"页都刷新安装状态
-
-        // ① 活动胶囊：槽位空间浮点弹簧驱动（模板 valueAnimation，弹跳全部来自弹簧本身）
-        slotSpring.target = idx;
-        kickSprings();
-
-        // ② 图标换装 + 颜色渐变
-        tabIcons[prev].setImageResource(TAB_ICON_IDLE[prev]);
-        tabIcons[idx].setImageResource(TAB_ICON_ACTIVE[idx]);
-        animateTint(tabIcons[prev], ACCENT, IDLE_TINT);
-        animateTint(tabIcons[idx], IDLE_TINT, ACCENT);
-        tabLabels[prev].setTextColor(IDLE_TINT);
-        tabLabels[idx].setTextColor(ACCENT);
-
-        // ③ 页面切换动效：方向性滑动 + 缩放 + 淡入淡出（对标模板动效 Standard 320ms）
-        animatePageSwitch(pageContainer.getChildAt(prev),
-                pageContainer.getChildAt(idx), idx > prev);
     }
 
     /** 切屏动效：旧页反向滑出缩小淡出，新页从滑动方向滑入回弹淡入 */
-    private void animatePageSwitch(View outPage, View inPage, boolean forward) {
+    void animatePageSwitch(View outPage, View inPage, boolean forward) {
         if (outPage == null || inPage == null) return;
         float w = Math.max(1f, pageContainer.getWidth());
         // 快速连点：先取消旧动画并复位状态，杜绝中途残留
@@ -635,37 +303,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
                 .start();
     }
 
-    /** 每帧把弹簧状态落到视图（底栏唯一渲染出口，模板 graphicsLayer 的 View 版） */
-    private void renderDock() {
-        if (pill == null || tabWidthPx <= 0) return;
-        pressProgress = pressSpring.value;
-        // 面板微位移：4dp × sign × EaseOut(|offset/total|)（模板 panelOffset）
-        float frac = totalWidthPx > 0 ? clamp(offsetSpring.value / totalWidthPx, -1f, 1f) : 0f;
-        float shift = 4 * dp * Math.signum(frac) * easeOut(Math.abs(frac));
-        pill.setX(bar.getX() + slotSpring.value * tabWidthPx + shift);
-        // 保体积速度拉伸（模板 layerBlock：scaleX ÷、scaleY ×）
-        float v1 = clamp(velSpring.value * 0.75f, -0.2f, 0.2f);
-        float v2 = clamp(velSpring.value * 0.25f, -0.2f, 0.2f);
-        pill.setScaleX(scaleXSpring.value / (1f - v1));
-        pill.setScaleY(scaleYSpring.value * (1f - v2));
-        // 容器按压放大：1 + 16dp / width × pressProgress（模板 layerBlock）
-        float cs = 1f + (16 * dp / Math.max(1f, barWrap.getWidth())) * pressProgress;
-        barWrap.setScaleX(cs);
-        barWrap.setScaleY(cs);
-        // 活动标签内容 1.2 倍按压缩放（模板 LocalLiquidBottomTabScale）
-        int act = (int) clamp(Math.round(slotSpring.value), 0, tabItems.length - 1);
-        for (int i = 0; i < tabItems.length; i++) {
-            float s = i == act ? 1f + 0.2f * pressProgress : 1f;
-            if (tabIcons[i] != null) { tabIcons[i].setScaleX(s); tabIcons[i].setScaleY(s); }
-            if (tabLabels[i] != null) { tabLabels[i].setScaleX(s); tabLabels[i].setScaleY(s); }
-        }
-        pill.invalidate();      // tint / 高光棱 / 内阴影随 pressProgress 重绘
-        barWrap.invalidate();   // 指尖镜面高光重绘
-    }
-
-    private static float easeOut(float t) { return 1f - (1f - t) * (1f - t) * (1f - t); }
-
-    private static float clamp(float v, float lo, float hi) {
+    static float clamp(float v, float lo, float hi) {
         return v < lo ? lo : Math.min(v, hi);
     }
 
@@ -676,21 +314,6 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** 模糊强度 dp → 5×5 偏移采样间距；0 = 清晰通透（免 25 抽头） */
-    /** 玻璃细则：动效阻尼 → 全部弹簧 DampedRatio 缩放（模板 运动.kt 公式） */
-    private void applyMotionTuning() {
-        float d = Prefs.damping(this);
-        slotSpring.dampingRatio = dampedRatio(1f, d);
-        pressSpring.dampingRatio = dampedRatio(1f, d);
-        velSpring.dampingRatio = dampedRatio(0.5f, d);
-        scaleXSpring.dampingRatio = dampedRatio(0.6f, d);
-        scaleYSpring.dampingRatio = dampedRatio(0.7f, d);
-        offsetSpring.dampingRatio = dampedRatio(1f, d);
-    }
-
-    private static float dampedRatio(float base, float damping) {
-        return clamp(base * (0.72f + 0.56f * damping), 0.25f, 1.25f);
-    }
-
     /** 鲜艳增强（模板 vibrancy）：采样背景饱和度 +18% */
     private void applyVibrancy() {
         ColorMatrixColorFilter cf = null;
@@ -703,12 +326,6 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         cardSamplePaint.setColorFilter(cf);   // 全部磨砂卡片背景层同步鲜艳增强
     }
 
-    private void animateTint(ImageView iv, int from, int to) {
-        ValueAnimator va = ValueAnimator.ofArgb(from, to);
-        va.setDuration(220);
-        va.addUpdateListener(a -> iv.setColorFilter((Integer) a.getAnimatedValue()));
-        va.start();
-    }
 
     /** 首页：状态卡 + 双统计卡 + 信息卡列表 + 反馈卡（对照参考模块版式） */
     /** 全局磨砂玻璃卡片：裁剪窗口内背景位图模糊 + 染色层 + 棱光 + 高光描边
@@ -801,9 +418,9 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
     /** 刷新底栏“应用”角标：= 已安装且勾选启用的作用域应用数；为 0 或设置页关掉角标则隐藏 */
     void updateScopeBadge() {
-        if (scopeBadge == null) return;
+        if (liquidBar.scopeBadge == null) return;
         if (!Prefs.appBadgeEnabled(this)) {   // 设置页总开关：不喜欢看就不显示
-            scopeBadge.setVisibility(View.GONE);
+            liquidBar.scopeBadge.setVisibility(View.GONE);
             return;
         }
         int n = 0;
@@ -813,10 +430,10 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
             }
         }
         if (n > 0) {
-            scopeBadge.setText(String.valueOf(n));
-            scopeBadge.setVisibility(View.VISIBLE);
+            liquidBar.scopeBadge.setText(String.valueOf(n));
+            liquidBar.scopeBadge.setVisibility(View.VISIBLE);
         } else {
-            scopeBadge.setVisibility(View.GONE);
+            liquidBar.scopeBadge.setVisibility(View.GONE);
         }
     }
 
@@ -893,8 +510,8 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     void applyGlassLive() {
         recomputeBarTint();
         requestGlassRefresh();
-        if (pill != null) pill.invalidate();
-        applyMotionTuning();
+        liquidBar.invalidatePill();
+        liquidBar.applyMotionTuning();
         applyVibrancy();
         restrokeCards();
         if (barWrap != null) barWrap.invalidate();

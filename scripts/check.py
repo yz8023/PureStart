@@ -140,7 +140,10 @@ def main():
     print("[5] UI/Hook 类隔离（UI 进程不得引用 Hook 类）")
     ui_files = ["SettingsActivity.java", "GlassCardView.java", "Prefs.java", "LiquidGlass.java",
                 "ThemeDialog.java", "AppDetailDialog.java", "HoldShieldView.java",
-                "HookStateProvider.java", "Targets.java", "IconControlReceiver.java"]
+                "HookStateProvider.java", "Targets.java", "IconControlReceiver.java",
+                # P1-2 拆出的 UI 类（同属 UI 进程，必须同样受隔离门约束）
+                "GlassEngine.java", "HomePage.java", "AppsPage.java",
+                "ExtensionPage.java", "SettingsCards.java", "LiquidBar.java"]
     bad = re.compile(r"Main\.TARGETS|Main\.Reporter|XiaoCanHook\.|UniversalAdHook\.|DexFinder\.|"
                      r"HookGate|io\.github\.libxposed")
     violations = []
