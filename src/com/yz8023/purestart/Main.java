@@ -1,4 +1,4 @@
-package com.example.l;
+package com.yz8023.purestart;
 
 import android.content.ContentResolver;
 import android.content.ContentValues;
@@ -34,7 +34,7 @@ public class Main extends XposedModule implements HookGate {
     static final String[][] TARGETS = Targets.LIST;
 
     /** 模块包名（module id / Provider authority 同源；改包名时此处与 Manifest 同改，check.py 把关） */
-    static final String MODULE_PACKAGE = "com.example.l";
+    static final String MODULE_PACKAGE = "com.yz8023.purestart";
     private static final String STATE_AUTHORITY = MODULE_PACKAGE + ".hookstate";
     private static final Uri STATE_URI = Uri.parse("content://" + STATE_AUTHORITY);
     private static final Uri SELFCHECK_URI = Uri.parse("content://" + STATE_AUTHORITY + "/selfcheck");

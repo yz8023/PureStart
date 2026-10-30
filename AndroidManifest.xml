@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.l"
+    package="com.yz8023.purestart"
     android:versionCode="108"
     android:versionName="15.0.8">
 
@@ -49,7 +49,7 @@
             android:name=".IconControlReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="com.example.l.action.SHOW_ICON" />
+                <action android:name="com.yz8023.purestart.action.SHOW_ICON" />
             </intent-filter>
         </receiver>
 
@@ -72,7 +72,7 @@
              exported + 应用级 forceQueryable 保证 FPA/LSPatch/LSPosed 下均可达 -->
         <provider
             android:name=".HookStateProvider"
-            android:authorities="com.example.l.hookstate"
+            android:authorities="com.yz8023.purestart.hookstate"
             android:exported="true" />
     </application>
 </manifest>

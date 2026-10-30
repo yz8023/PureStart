@@ -1,4 +1,4 @@
-package com.example.l;
+package com.yz8023.purestart;
 
 /**
  * Hook 开关闸门：Hook 侧在拦截回调触发时按 key 查询设置页状态。

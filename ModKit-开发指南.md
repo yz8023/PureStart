@@ -15,7 +15,7 @@ PureStart/
 ├── debug.keystore             # 连续发布签名密钥（证书 6c825440…；构建经 KEYSTORE_PATH 引用）
 ├── libs/api.jar               # libxposed API（仅编译期）
 ├── res/                       # 图标 + 设置页资源
-├── src/com/example/l/
+├── src/com/yz8023/purestart/
 │   ├── Main.java              # ★ 模块入口：目标分发 + 开关闸门（fail-safe）+ 自检上报
 │   ├── Targets.java           # ★ 目标清单单一事实来源（LIST：包名 + 描述）
 │   ├── XiaoCanHook.java       # 小蚕惠生活净化（含壳延迟安装；主类未命中有 ERROR 留痕）
@@ -107,6 +107,9 @@ python3 scripts/check.py    # 退出码：通过 0、发现漂移 1
 - 已移除 `INTERNET`（无网络请求）与 `QUERY_ALL_PACKAGES`（改 `<queries>` 17 目标包）；
 - `HookStateProvider` 保持 exported（目标进程读取开关必需），无鉴权，
   理论上可被他 App 读取开关/伪造自检上报——接受此取舍，因敏感度低且是跨进程最通用通道。
-- 包名仍为脚手架 `com.example.l`：**未迁移属有意决定**——换包名会破坏现有用户覆盖升级
-  与 LSPosed 模块识别；正式包名迁移（`com.yz8023.purestart`）已列整改待办，
-  迁移时由 check.py 第 4 项（authority 一致性）先行把关。
+- 包名已迁移为正式包名 `com.yz8023.purestart`（v15.1.0 断代；原 `com.example.l` 为脚手架占位）。
+  同步面：Manifest package / Provider authority / `module.prop` id / `java_init.list` /
+  IconAlias ComponentName / 图标恢复广播 action / 源码目录 `src/com/yz8023/purestart/`，
+  全部由 check.py 第 4 项（authority 一致性）与构建流程把关。
+  旧包名版本不可覆盖升级（Android 按包名判定），旧版隐藏图标恢复用
+  `adb shell pm enable com.example.l/.IconAlias`。

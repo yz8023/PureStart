@@ -2,6 +2,6 @@
 <resources>
     <string-array name="xposedscope">
         <item>com.example.target</item>
-        <item>com.example.l</item>
+        <item>com.yz8023.purestart</item>
     </string-array>
 </resources>

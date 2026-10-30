@@ -1,4 +1,4 @@
-package com.example.l;
+package com.yz8023.purestart;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
@@ -11,7 +11,7 @@ import android.os.Bundle;
  * Hook 开关查询入口。
  *
  * Hook 侧（目标应用进程内）通过:
- *   getContentResolver().call(Uri.parse("content://com.example.l.hookstate"),
+ *   getContentResolver().call(Uri.parse("content://com.yz8023.purestart.hookstate"),
  *                             "enabled", 目标包名, null)
  * 读取设置页的勾选状态（模块私有偏好）。
  *

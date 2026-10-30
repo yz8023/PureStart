@@ -1,4 +1,4 @@
-package com.example.l;
+package com.yz8023.purestart;
 
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -12,18 +12,18 @@ import android.util.Log;
  *
  * 隐藏图标后 LSPosed 的「打开」与系统启动意图都会失效，此前没有任何恢复通道。
  * 现提供常驻 exported 广播：
- *   adb shell am broadcast -a com.example.l.action.SHOW_ICON
+ *   adb shell am broadcast -a com.yz8023.purestart.action.SHOW_ICON
  * 效果：重新启用 IconAlias（图标回到桌面）并直接打开设置页。
  */
 public class IconControlReceiver extends BroadcastReceiver {
-    public static final String ACTION_SHOW_ICON = "com.example.l.action.SHOW_ICON";
+    public static final String ACTION_SHOW_ICON = "com.yz8023.purestart.action.SHOW_ICON";
 
     @Override
     public void onReceive(Context context, Intent intent) {
         if (!ACTION_SHOW_ICON.equals(intent.getAction())) return;
         try {
             context.getPackageManager().setComponentEnabledSetting(
-                    new ComponentName(context, "com.example.l.IconAlias"),
+                    new ComponentName(context, "com.yz8023.purestart.IconAlias"),
                     PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                     PackageManager.DONT_KILL_APP);
             Log.i("ModKit", "SHOW_ICON: launcher alias re-enabled");

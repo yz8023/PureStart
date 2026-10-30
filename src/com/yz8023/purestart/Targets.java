@@ -1,4 +1,4 @@
-package com.example.l;
+package com.yz8023.purestart;
 
 /**
  * 目标应用清单 —— 单一事实来源（纯数据类）。

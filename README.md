@@ -57,9 +57,12 @@ python3 scripts/check.py    # 退出码：通过 0、发现漂移 1
 
 ## 已知决定与待办
 
-- **包名保持 `com.example.l`（待迁移）**：脚手架占位包名更换（→ `com.yz8023.purestart`）
-  已列整改待办；迁移会使用户无法从旧包名版本直接覆盖升级，LSPosed 模块识别也会断代，
-  因此放在大版本断代（v15.1.0）一起做，authority 一致性由 check.py 第 4 项把关。
+- **包名已于 v15.1.0 迁移至 `com.yz8023.purestart`**（原脚手架占位 `com.example.l`）。
+  迁移同步改了 Manifest package、Provider authority、`xposed/module.prop` id、
+  `java_init.list`、IconAlias/广播 action 与源码目录；authority 一致性由 check.py 第 4 项把关。
+  **断代影响**：旧包名版本无法覆盖升级到新包名（Android 按包名+签名判定），需先卸载旧版
+  （或两版并存）；旧版曾隐藏桌面图标的用户，恢复命令为
+  `adb shell pm enable com.example.l/.IconAlias`（或 `adb shell am broadcast -a com.example.l.action.SHOW_ICON`）。
 - 磨砂玻璃界面是 **View 近似**（命名与差异声明遵循 [yz8023/ui](https://github.com/yz8023/ui)
   `prompts/03` 路线 B）：卡片=窗口内背景位图裁剪、底栏=限频截图降分辨率模糊、
   弹窗 Android 12+ 用系统窗口背景模糊；无 Compose backdrop 折射。

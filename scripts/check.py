@@ -40,12 +40,12 @@ def main():
 
     # ---- 1. 目标清单三处一致（两两 diff，指明文件对） ----
     print("[1] 目标应用清单（Targets.java / scope.list / APP_DESC）")
-    targets = [t for t in re.findall(r'\{\s*"([A-Za-z0-9_.]+)",\s*"', read("src/com/example/l/Targets.java"))
+    targets = [t for t in re.findall(r'\{\s*"([A-Za-z0-9_.]+)",\s*"', read("src/com/yz8023/purestart/Targets.java"))
                if "." in t and not t.startswith("com.example")]
     scope = [l.strip() for l in read("xposed/scope.list").splitlines()
              if l.strip() and not l.startswith("#")]
     app_desc = []
-    for line in read("src/com/example/l/SettingsActivity.java").splitlines():
+    for line in read("src/com/yz8023/purestart/SettingsActivity.java").splitlines():
         ls = line.strip()
         if ls.startswith("//"):
             continue
@@ -108,7 +108,7 @@ def main():
 
     # ---- 3. Main.java 声称的 API 版本 == module.prop targetApiVersion ----
     print("[3] API 版本声明（Main.java ↔ module.prop targetApiVersion）")
-    main_src = read("src/com/example/l/Main.java")
+    main_src = read("src/com/yz8023/purestart/Main.java")
     api_claims = set(re.findall(r"API (\d+)", main_src))
     target_api = re.search(r"^targetApiVersion=(\d+)$", prop, re.M)
     if not target_api:
@@ -148,7 +148,7 @@ def main():
                      r"HookGate|io\.github\.libxposed")
     violations = []
     for uf in ui_files:
-        path = "src/com/example/l/" + uf
+        path = "src/com/yz8023/purestart/" + uf
         if not os.path.exists(os.path.join(ROOT, path)):
             continue
         for i, line in enumerate(read(path).splitlines(), 1):

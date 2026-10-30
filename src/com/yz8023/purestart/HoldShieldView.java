@@ -1,4 +1,4 @@
-package com.example.l;
+package com.yz8023.purestart;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;

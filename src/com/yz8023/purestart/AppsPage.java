@@ -1,4 +1,4 @@
-package com.example.l;
+package com.yz8023.purestart;
 
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;

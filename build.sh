@@ -54,9 +54,9 @@ fi
 
 echo "[1.5] 生成 BuildInfo.java（构建时间戳；版本号已改为运行时 PackageManager 读取，不再生成 BuildVersion）"
 BUILD_TS="$(date '+%Y-%m-%d %H:%M')"
-mkdir -p $OUT/gen/com/example/l
-cat > $OUT/gen/com/example/l/BuildInfo.java <<EOF
-package com.example.l;
+mkdir -p $OUT/gen/com/yz8023/purestart
+cat > $OUT/gen/com/yz8023/purestart/BuildInfo.java <<EOF
+package com.yz8023.purestart;
 
 /** 由 build.sh 自动生成（每次构建刷新），请勿手改 */
 public final class BuildInfo {

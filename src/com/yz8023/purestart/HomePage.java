@@ -1,4 +1,4 @@
-package com.example.l;
+package com.yz8023.purestart;
 
 import android.graphics.Typeface;
 import android.os.Build;
@@ -364,8 +364,8 @@ final class HomePage {
                         .setTitle("隐藏桌面图标")
                         .setMessage("隐藏后将无法从桌面打开，LSPosed 的「打开」也可能失效。\n\n"
                                 + "恢复方式（任选其一）：\n"
-                                + "① adb shell am broadcast -a com.example.l.action.SHOW_ICON\n"
-                                + "② adb shell pm enable com.example.l/.IconAlias\n"
+                                + "① adb shell am broadcast -a com.yz8023.purestart.action.SHOW_ICON\n"
+                                + "② adb shell pm enable com.yz8023.purestart/.IconAlias\n"
                                 + "③ 系统设置 → 应用 → PureStart → 卸载后重装（设置会丢失）")
                         .setPositiveButton("仍要隐藏", (d, w) -> setDesktopIcon(sw, false))
                         .setNegativeButton("取消", null)
@@ -381,7 +381,7 @@ final class HomePage {
     private void setDesktopIcon(android.widget.Switch sw, boolean show) {
         try {
             a.getPackageManager().setComponentEnabledSetting(
-                    new android.content.ComponentName(a, "com.example.l.IconAlias"),
+                    new android.content.ComponentName(a, "com.yz8023.purestart.IconAlias"),
                     show ? android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
                             : android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                     android.content.pm.PackageManager.DONT_KILL_APP);
@@ -398,7 +398,7 @@ final class HomePage {
     private boolean isLauncherAliasEnabled() {
         try {
             return a.getPackageManager().getComponentEnabledSetting(
-                    new android.content.ComponentName(a, "com.example.l.IconAlias"))
+                    new android.content.ComponentName(a, "com.yz8023.purestart.IconAlias"))
                     != android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
         } catch (Throwable t) {
             return true;
