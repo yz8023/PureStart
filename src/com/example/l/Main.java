@@ -30,25 +30,8 @@ public class Main extends XposedModule implements HookGate {
 
     private static final String TAG = "ModKit";
 
-    static final String[][] TARGETS = {
-            { "com.realtech.xiaocan", "小蚕惠生活 · 开屏及信息流去广告、弹窗拦截" },
-            { "com.netease.cloudmusic", "网易云音乐 · 开屏广告/横幅与信息流净化" },
-            { "com.luna.music", "汽水音乐 · 冷启动开屏广告拦截" },
-            { "com.xiaomi.shop", "小米商城 · 开屏与促销广告净化" },
-            { "com.yek.android.kfc.activitys", "肯德基 · 启动页与横幅广告净化" },
-            { "com.mcdonalds.gma.cn", "麦当劳 · 启动开屏与横幅广告净化" },
-            { "com.tencent.qqmusic", "QQ音乐 · 开屏/Feed/插屏及精简优化" },
-            { "com.coolapk.market", "酷安 · 头条流/评论区/Sponsor广告净化" },
-            { "com.baidu.BaiduMap", "百度地图 · 极速启动/开屏及营销广告去除" },
-            { "com.xiaomi.market", "小米应用商店 · 启动开屏广告跳过" },
-            { "com.glodon.drawingexplorer", "CAD快速看图 · 启动与插屏广告拦截" },
-            { "com.xbxxhz.box", "小白学习打印 · 启动与通用SDK广告拦截" },
-            { "tv.danmaku.bili", "哔哩哔哩 · 开屏与Landing页广告净化" },
-            { "com.autonavi.minimap", "高德地图 · 开屏与推广弹窗拦截" },
-            { "com.zhihu.android", "知乎 · 开屏与信息流回答卡片广告拦截" },
-            { "com.dragon.read", "红果免费短剧 · 开屏与激励广告跳过" },
-            { "com.baidu.netdisk", "百度网盘 · 启动页与营销广告净化" },
-    };
+    /** 目标清单唯一来源在 Targets.java（纯数据类，UI 进程也可安全加载） */
+    static final String[][] TARGETS = Targets.LIST;
 
     private static final Uri STATE_URI = Uri.parse("content://com.example.l.hookstate");
     private ContentResolver resolver;

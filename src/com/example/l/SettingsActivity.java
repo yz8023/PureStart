@@ -98,7 +98,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     private static final java.util.HashMap<String, String> APP_DESC = new java.util.HashMap<>();
     static {
         // 示例：APP_DESC.put("com.example.app", "去广告 · 解锁会员");
-        // 与 Main.TARGETS / xposed/scope.list 三处同步
+        // 与 Targets.LIST / xposed/scope.list 三处同步
         APP_DESC.put("com.realtech.xiaocan", "小蚕惠生活 · 开屏及信息流去广告、弹窗拦截");
         APP_DESC.put("com.netease.cloudmusic", "网易云音乐 · 开屏广告/横幅与信息流净化");
         APP_DESC.put("com.luna.music", "汽水音乐 · 冷启动开屏广告拦截");
@@ -986,7 +986,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
                 getSharedPreferences("selfcheck", MODE_PRIVATE);
         java.text.DateFormat tf = new java.text.SimpleDateFormat("MM-dd HH:mm",
                 java.util.Locale.getDefault());
-        for (String[] t : Main.TARGETS) {
+        for (String[] t : Targets.LIST) {
             String row = sp.getString(t[0], null);
             TextView line = new TextView(this);
             line.setTextSize(12);
@@ -1699,7 +1699,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     /** 目标应用已装数量（仅查 17 个目标包：配合 Manifest <queries>，不再需要 QUERY_ALL_PACKAGES） */
     private int installedAppCount() {
         int n = 0;
-        for (String[] t : Main.TARGETS) {
+        for (String[] t : Targets.LIST) {
             try {
                 getPackageManager().getPackageInfo(t[0], 0);
                 n++;

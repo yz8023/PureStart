@@ -34,9 +34,9 @@ def main():
     errors = 0
 
     # ---- 1. 目标清单三处一致 ----
-    print("[1] 目标应用清单（Main.TARGETS / scope.list / APP_DESC）")
-    main_src = read("src/com/example/l/Main.java")
-    targets = re.findall(r'\{\s*"([A-Za-z0-9_.]+)",\s*"', main_src)
+    print("[1] 目标应用清单（Targets.LIST / scope.list / APP_DESC）")
+    targets_src = read("src/com/example/l/Targets.java")
+    targets = re.findall(r'\{\s*"([A-Za-z0-9_.]+)",\s*"', targets_src)
     targets = [t for t in targets if "." in t and not t.startswith("com.example")]
 
     scope = [l.strip() for l in read("xposed/scope.list").splitlines()
@@ -63,7 +63,7 @@ def main():
             errors += fail(f"Main.TARGETS 与 APP_DESC 不一致："
                            f"仅前者有 {sorted(tset - aset)}，仅后者有 {sorted(aset - tset)}")
         if not targets:
-            errors += fail("未能从 Main.TARGETS 解析出任何包名（解析式失效？）")
+            errors += fail("未能从 Targets.java 解析出任何包名（解析式失效？）")
 
     # ---- 2. 版本号一致性 ----
     print("[2] 版本号（Manifest ↔ module.prop）")
@@ -106,6 +106,31 @@ def main():
         ok(f"{ks} 在位（历代签名一致，覆盖升级可用）")
     else:
         errors += fail(f"签名密钥 {ks} 缺失（构建将拒绝执行，防止静默换签名）")
+
+    # ---- 5. UI/Hook 隔离（设置页进程无 libxposed 运行时） ----
+    print("[5] UI/Hook 类隔离（UI 进程不得引用 Hook 类）")
+    ui_files = ["SettingsActivity.java", "GlassCardView.java", "GlassPrefs.java",
+                "LiquidGlass.java", "ThemeDialog.java", "AppDetailDialog.java",
+                "HoldShieldView.java", "HookStateProvider.java", "Targets.java"]
+    bad = re.compile(r"Main\.TARGETS|Main\.Reporter|XiaoCanHook\.|UniversalAdHook\.|"
+                     r"DexFinder\.|HookGate|io\.github\.libxposed")
+    violations = []
+    for uf in ui_files:
+        path = "src/com/example/l/" + uf
+        if not os.path.exists(os.path.join(ROOT, path)):
+            continue
+        for i, line in enumerate(read(path).splitlines(), 1):
+            ls = line.strip()
+            if ls.startswith(("*", "//", "/*")):   # 注释不算引用
+                continue
+            if bad.search(ls):
+                violations.append(f"{path}:{i}: {ls[:70]}")
+    if violations:
+        errors += fail("UI 类引用了 Hook 类（会致设置页 NoClassDefFoundError 崩溃）：")
+        for v in violations:
+            print("      " + v)
+    else:
+        ok("UI 类与 Hook 类完全隔离")
 
     print()
     if errors:
