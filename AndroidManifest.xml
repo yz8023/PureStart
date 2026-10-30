@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.l"
+    android:versionCode="101"
+    android:versionName="15.0.1">
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <application
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="PureStart"
+        android:description="@string/moddesc"
+        android:forceQueryable="true">
+
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="true"
+            android:label="PureStart"
+            android:theme="@style/AppTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Hook 开关查询入口：目标应用进程内经 call() 读取设置页勾选状态；
+             exported + 应用级 forceQueryable 保证 FPA/LSPatch/LSPosed 下均可达 -->
+        <provider
+            android:name=".HookStateProvider"
+            android:authorities="com.example.l.hookstate"
+            android:exported="true" />
+    </application>
+</manifest>

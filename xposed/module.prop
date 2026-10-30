@@ -1,0 +1,9 @@
+id=com.example.l
+name=PureStart (ModKit Edition)
+version=v15.0.1
+versionCode=101
+author=yz8023
+description=PureStart 现代化 M3 悬浮底栏版，内置 XiaoCan（小蚕惠生活）净化与通用去广告引擎，支持 DexFinder 特征自动匹配。
+minApiVersion=100
+targetApiVersion=102
+staticScope=true
