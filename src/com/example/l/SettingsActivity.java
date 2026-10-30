@@ -179,6 +179,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     final GlassEngine engine = new GlassEngine(this);   // 磨砂玻璃捕获/绘制引擎（P1-2 拆出）
     final HomePage homePage = new HomePage(this);      // 「首页」页组装（P1-2 拆出）
     final AppsPage appsPage = new AppsPage(this);      // 「应用」页组装（P1-2 拆出）
+    final ExtensionPage extPage = new ExtensionPage(this); // 「拓展」页组装（P1-2 拆出）
     private int selectedTab = 0;
     float dp;
 
@@ -308,7 +309,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         }
         pageContainer.addView(homePage.build());
         pageContainer.addView(appsPage.build());
-        pageContainer.addView(makeExtensionPage());
+        pageContainer.addView(extPage.build());
         pageContainer.addView(makeSettingsPage());
         for (int i = 1; i < pageContainer.getChildCount(); i++) {
             pageContainer.getChildAt(i).setVisibility(View.GONE);
@@ -788,7 +789,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** 开关偏好（模块私有）；Hook 侧经 HookStateProvider 跨进程读取 */
-    private android.content.SharedPreferences hookPrefs() {
+    android.content.SharedPreferences hookPrefs() {
         if (hookPrefs == null) {
             hookPrefs = Prefs.sp(this);
         }
@@ -873,7 +874,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** 设置页分组小标题 */
-    private TextView sectionHeader(String text) {
+    TextView sectionHeader(String text) {
         TextView t = new TextView(this);
         t.setText(text);
         t.setTextSize(13);
@@ -884,7 +885,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** 设置行卡片：图标 + 标题/副标题 +（可选）Switch（switchKey 非空时显示并持久化到偏好） */
-    private LinearLayout setRow(int iconRes, String title, String sub, String switchKey) {
+    LinearLayout setRow(int iconRes, String title, String sub, String switchKey) {
         LinearLayout card = makeCard();
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
@@ -1346,7 +1347,7 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
     }
 
     /** P0-2：版本号运行时取自 PackageManager（唯一来源 Manifest），不硬编码 */
-    private String versionName() {
+    String versionName() {
         try {
             return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Throwable t) {
@@ -1356,185 +1357,13 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
 
     /** 占位页面：标题 + 副标题 + 卡片 */    /** 占位页面：标题 + 副标题 + 卡片 */
     /** 拓展页：激活指引 + 配置备份/恢复 + 关于（真实可用功能） */
-    private View makeExtensionPage() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (22 * dp);
-        box.setPadding(pad, (int) (26 * dp), pad, (int) (108 * dp));
-        scroll.addView(box, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-
-        TextView title = new TextView(this);
-        title.setText("拓展");
-        title.setTextSize(26);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(INK);
-        box.addView(title);
-        TextView sub = new TextView(this);
-        sub.setText("激活指引 · 数据管理 · 关于模块");
-        sub.setTextSize(14);
-        sub.setTextColor(SUB);
-        sub.setPadding(0, (int) (6 * dp), 0, (int) (16 * dp));
-        box.addView(sub);
-
-        // ===== 分组：激活指引 =====
-        box.addView(sectionHeader("激活指引"));
-        LinearLayout guide = makeCard();
-        guide.setOrientation(LinearLayout.VERTICAL);
-        guide.setPadding((int) (18 * dp), (int) (16 * dp), (int) (18 * dp), (int) (16 * dp));
-        String[] steps = {
-                "① 打开 LSPosed →「模块」→ 找到 PureStart 并启用",
-                "② 在「作用域」中勾选需要净化的应用（本模块已内置推荐作用域）",
-                "③ 强制停止或重启勾选的目标应用（无需重启手机）",
-                "④ 回到本模块「应用」页确认对应应用已显示启用状态",
-        };
-        for (String s : steps) {
-            TextView t = new TextView(this);
-            t.setText(s);
-            t.setTextSize(13.5f);
-            t.setTextColor(INK);
-            t.setLineSpacing(3 * dp, 1f);
-            t.setPadding(0, (int) (3 * dp), 0, (int) (3 * dp));
-            guide.addView(t);
-        }
-        TextView faq = new TextView(this);
-        faq.setText("排查：拦截无效时请依次确认模块已启用、作用域已勾选、目标应用已重启；"
-                + "本模块基于 libxposed API 102，需 LSPosed 1.9.2+ 等现代框架。");
-        faq.setTextSize(12);
-        faq.setTextColor(SUB);
-        faq.setLineSpacing(3 * dp, 1f);
-        faq.setPadding(0, (int) (10 * dp), 0, 0);
-        guide.addView(faq);
-        addCard(box, guide);
-
-        // ===== 分组：数据管理 =====
-        box.addView(sectionHeader("数据管理"));
-        LinearLayout backupCard = setRow(R.drawable.ic_set_refresh, "备份配置",
-                "导出全部应用开关与偏好为 JSON 文件", null);
-        backupCard.setOnClickListener(v -> {
-            try {
-                android.content.Intent i = new android.content.Intent(
-                        android.content.Intent.ACTION_CREATE_DOCUMENT);
-                i.addCategory(android.content.Intent.CATEGORY_OPENABLE);
-                i.setType("application/json");
-                i.putExtra(android.content.Intent.EXTRA_TITLE, "purestart-backup.json");
-                startActivityForResult(i, 41);
-            } catch (Throwable t) {
-                toast("无法打开文件选择器：" + t.getMessage());
-            }
-        });
-        addCard(box, backupCard);
-
-        LinearLayout restoreCard = setRow(R.drawable.ic_set_drop, "恢复配置",
-                "从备份 JSON 导入应用开关与偏好", null);
-        restoreCard.setOnClickListener(v -> {
-            try {
-                android.content.Intent i = new android.content.Intent(
-                        android.content.Intent.ACTION_OPEN_DOCUMENT);
-                i.addCategory(android.content.Intent.CATEGORY_OPENABLE);
-                i.setType("application/json");
-                startActivityForResult(i, 42);
-            } catch (Throwable t) {
-                toast("无法打开文件选择器：" + t.getMessage());
-            }
-        });
-        addCard(box, restoreCard);
-
-        // ===== 分组：关于 =====
-        box.addView(sectionHeader("关于"));
-        LinearLayout about = makeCard();
-        about.setOrientation(LinearLayout.VERTICAL);
-        about.setPadding((int) (18 * dp), (int) (16 * dp), (int) (18 * dp), (int) (16 * dp));
-        String[] infos = {
-                "开源地址", "github.com/yz8023/PureStart",
-                "模块版本", "v" + versionName() + " (ModKit Edition)",
-                "Hook 接口", "libxposed API 102（Modern Xposed）",
-                "构建时间", BuildInfo.BUILD_TIME,
-        };
-        for (int i = 0; i < infos.length; i += 2) {
-            TextView line = new TextView(this);
-            line.setText(infos[i] + "：" + infos[i + 1]);
-            line.setTextSize(13);
-            line.setTextColor(i % 4 == 0 ? SUB : INK);
-            line.setPadding(0, (int) (3 * dp), 0, (int) (3 * dp));
-            about.addView(line);
-        }
-        addCard(box, about);
-        return scroll;
-    }
-
-    private void toast(String msg) {
-        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show();
-    }
-
-    /** 备份：全部偏好导出为 JSON */
-    private void exportPrefs(android.net.Uri uri) {
-        try {
-            org.json.JSONObject jo = new org.json.JSONObject();
-            java.util.Map<String, ?> all = hookPrefs().getAll();
-            for (java.util.Map.Entry<String, ?> e : all.entrySet()) {
-                Object v = e.getValue();
-                if (v instanceof Boolean) jo.put(e.getKey(), (Boolean) v);
-                else if (v instanceof Integer) jo.put(e.getKey(), (Integer) v);
-                else if (v instanceof Long) jo.put(e.getKey(), (Long) v);
-                else if (v instanceof Float) jo.put(e.getKey(), (Float) v);
-                else if (v instanceof String) jo.put(e.getKey(), (String) v);
-            }
-            java.io.OutputStream os = getContentResolver().openOutputStream(uri);
-            if (os == null) { toast("导出失败：无法写入"); return; }
-            os.write(jo.toString().getBytes("UTF-8"));
-            os.close();
-            toast("已导出 " + jo.length() + " 项配置");
-        } catch (Throwable t) {
-            toast("导出失败：" + t.getMessage());
-        }
-    }
-
-    /** 恢复：从 JSON 导入偏好并重建界面 */
-    private void importPrefs(android.net.Uri uri) {
-        try {
-            java.io.InputStream is = getContentResolver().openInputStream(uri);
-            if (is == null) { toast("导入失败：无法读取"); return; }
-            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
-            is.close();
-            org.json.JSONObject jo = new org.json.JSONObject(
-                    new String(bos.toByteArray(), "UTF-8"));
-            android.content.SharedPreferences.Editor ed = hookPrefs().edit();
-            java.util.Iterator<String> it = jo.keys();
-            int count = 0;
-            while (it.hasNext()) {
-                String k = it.next();
-                Object v = jo.get(k);
-                if (v instanceof Boolean) ed.putBoolean(k, (Boolean) v);
-                else if (v instanceof Integer) ed.putInt(k, (Integer) v);
-                else if (v instanceof Long) ed.putLong(k, (Long) v);
-                else if (v instanceof Float) ed.putFloat(k, (Float) v);
-                else if (v instanceof String) ed.putString(k, (String) v);
-                else continue;
-                count++;
-            }
-            ed.apply();
-            toast("已导入 " + count + " 项配置，界面即将刷新");
-            barWrap.postDelayed(this::recreate, 600);
-        } catch (Throwable t) {
-            toast("导入失败：" + t.getMessage());
-        }
-    }
-
     @Override
     protected void onActivityResult(int requestCode, int resultCode,
                                     android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (data == null || data.getData() == null) return;
-        if (requestCode == 41 && resultCode == RESULT_OK) exportPrefs(data.getData());
-        else if (requestCode == 42 && resultCode == RESULT_OK) importPrefs(data.getData());
+        if (requestCode == 41 && resultCode == RESULT_OK) extPage.exportPrefs(data.getData());
+        else if (requestCode == 42 && resultCode == RESULT_OK) extPage.importPrefs(data.getData());
     }
 
     private View makePage(String title, String subtitle, String body) {
