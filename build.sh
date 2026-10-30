@@ -38,7 +38,7 @@ EOF
 
 echo "[2/5] javac"
 find src $OUT/gen -name "*.java" > $OUT/sources.txt
-javac -encoding UTF-8 -source 8 -target 8 -cp "$ANDROID_JAR:$API_JAR" -d $OUT/classes @$OUT/sources.txt
+javac -encoding UTF-8 -source 17 -target 17 -cp "$ANDROID_JAR:$API_JAR" -d $OUT/classes @$OUT/sources.txt
 
 echo "[3/5] d8"
 MODCLASSES=$(find $OUT/classes -name "*.class")
