@@ -27,15 +27,15 @@ public final class XiaoCanHook {
 
     private XiaoCanHook() {}
 
-    public static void install(XposedInterface xposed, ClassLoader cl) {
+    public static void install(XposedInterface xposed, ClassLoader cl, final HookGate gate) {
         if (xposed == null || cl == null) return;
-        hookSplashAdFactory(xposed, cl);
-        hookFlutterAdPlugins(xposed, cl);
-        hookPopupDialogs(xposed, cl);
-        hookAdActivities(xposed);
+        hookSplashAdFactory(xposed, cl, gate);
+        hookFlutterAdPlugins(xposed, cl, gate);
+        hookPopupDialogs(xposed, cl, gate);
+        hookAdActivities(xposed, gate);
     }
 
-    private static void hookSplashAdFactory(XposedInterface xposed, ClassLoader cl) {
+    private static void hookSplashAdFactory(XposedInterface xposed, ClassLoader cl, final HookGate gate) {
         try {
             Class<?> factoryClass = DexFinder.safeLoad(cl, "com.realtech.xiaocan.ad.splash.SplashAdSourceFactory");
             if (factoryClass == null) return;
@@ -44,6 +44,9 @@ public final class XiaoCanHook {
                     xposed.hook(m).intercept(new XposedInterface.Hooker() {
                         @Override
                         public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                            if (gate != null && (!gate.on("enabled") || !gate.on("splash"))) {
+                                return chain.proceed();
+                            }
                             List<Object> args = chain.getArgs();
                             if (args != null && args.size() > 2) {
                                 Object listener = args.get(2);
@@ -64,7 +67,7 @@ public final class XiaoCanHook {
         }
     }
 
-    private static void hookFlutterAdPlugins(XposedInterface xposed, ClassLoader cl) {
+    private static void hookFlutterAdPlugins(XposedInterface xposed, ClassLoader cl, final HookGate gate) {
         String[] handlers = {
                 "com.windmill.windmill_ad_plugin.WindmillAdPluginDelegate",
                 "com.windmill.windmill_ad_plugin.interstitial.InterstitialAd",
@@ -97,6 +100,9 @@ public final class XiaoCanHook {
                 xposed.hook(target).intercept(new XposedInterface.Hooker() {
                     @Override
                     public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        if (gate != null && (!gate.on("enabled") || !gate.on("feed"))) {
+                            return chain.proceed();
+                        }
                         List<Object> args = chain.getArgs();
                         if (args == null || args.size() < 2) return chain.proceed();
                         String method = (String) methodField.get(args.get(0));
@@ -122,7 +128,7 @@ public final class XiaoCanHook {
         }
     }
 
-    private static void hookPopupDialogs(XposedInterface xposed, ClassLoader cl) {
+    private static void hookPopupDialogs(XposedInterface xposed, ClassLoader cl, final HookGate gate) {
         try {
             Class<?> basePopup = DexFinder.safeLoad(cl, "com.realtech.promotion.dialog.BasePopup");
             if (basePopup != null) {
@@ -131,6 +137,9 @@ public final class XiaoCanHook {
                     xposed.hook(showMethod).intercept(new XposedInterface.Hooker() {
                         @Override
                         public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                            if (gate != null && (!gate.on("enabled") || !gate.on("popup"))) {
+                                return chain.proceed();
+                            }
                             return null;
                         }
                     });
@@ -139,12 +148,15 @@ public final class XiaoCanHook {
         } catch (Throwable ignored) {}
     }
 
-    private static void hookAdActivities(XposedInterface xposed) {
+    private static void hookAdActivities(XposedInterface xposed, final HookGate gate) {
         try {
             Method m = Activity.class.getDeclaredMethod("onCreate", Bundle.class);
             xposed.hook(m).intercept(new XposedInterface.Hooker() {
                 @Override
                 public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        if (gate != null && !gate.on("enabled")) {
+                            return chain.proceed();
+                        }
                     Object thisObj = chain.getThisObject();
                     if (thisObj instanceof Activity) {
                         String name = thisObj.getClass().getName();

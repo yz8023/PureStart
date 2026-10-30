@@ -287,6 +287,23 @@ public class SettingsActivity extends Activity {
     }
 
     @Override
+    protected void attachBaseContext(android.content.Context base) {
+        // 语言设置（跟随系统 / 简体中文）：配置上下文包一层 locale
+        int mode = 0;
+        try {
+            mode = base.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
+                    .getInt("locale_mode", 0);
+        } catch (Throwable ignored) {}
+        if (mode == 1) {
+            android.content.res.Configuration cfg = new android.content.res.Configuration();
+            cfg.setLocale(java.util.Locale.SIMPLIFIED_CHINESE);
+            cfg.setLocales(android.os.LocaleList.forLanguageTags("zh-CN"));
+            base = base.createConfigurationContext(cfg);
+        }
+        super.attachBaseContext(base);
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         applyTheme();   // 最先解析主题（跟随系统/浅色/深色）
         super.onCreate(savedInstanceState);
@@ -325,8 +342,7 @@ public class SettingsActivity extends Activity {
         }
         pageContainer.addView(makeHomePage());
         pageContainer.addView(makeAppsPage());
-        pageContainer.addView(makePage("拓展", "功能插件",
-                "此页预留：自定义 Hook 配置、配置备份 / 恢复等扩展功能。"));
+        pageContainer.addView(makeExtensionPage());
         pageContainer.addView(makeSettingsPage());
         for (int i = 1; i < pageContainer.getChildCount(); i++) {
             pageContainer.getChildAt(i).setVisibility(View.GONE);
@@ -370,11 +386,13 @@ public class SettingsActivity extends Activity {
                         dockLastT = android.os.SystemClock.uptimeMillis();
                         dockVel = 0f;
                         dockDragging = false;
-                        // 按压判定：落在活动胶囊范围（模板拖拽手势挂在胶囊上，canDrag 校验全局范围）
-                        float capL = bar.getX() + slotSpring.value * tabWidthPx;
-                        dockPressed = tabWidthPx > 0 && ev.getX() >= capL - 8 * dp
-                                && ev.getX() <= capL + tabWidthPx + 8 * dp;
+                        // 点击位置直接定位：底栏任意位置按下，胶囊立即跳到手指槽位
+                        dockPressed = tabWidthPx > 0;
                         if (dockPressed) {
+                            float slot = clamp((ev.getX() - bar.getX()) / tabWidthPx,
+                                    0f, tabItems.length - 1f);
+                            slotSpring.value = slotSpring.target = slot;
+                            slotSpring.vel = 0f;
                             pressSpring.target = 1f;
                             scaleXSpring.target = PRESSED_SCALE;
                             scaleYSpring.target = PRESSED_SCALE;
@@ -390,10 +408,10 @@ public class SettingsActivity extends Activity {
                         dockVel = 0.75f * dockVel + 0.25f * (dx / dtSec);
                         dockLastX = ev.getX();
                         dockLastT = now;
-                        if (dockPressed && (dockDragging
-                                || Math.abs(ev.getX() - dockDownX) > 8 * dp)) {
-                            dockDragging = true;
+                        if (dockPressed) {
+                            if (Math.abs(ev.getX() - dockDownX) > 2 * dp) dockDragging = true;
                             // 槽位空间浮点驱动：dx → dx / tabWidth（模板 F08 规则，禁止像素坐标反推）
+                            // 任意起点、全程 1:1 跟手（点击即定位 + 拖动即跟随）
                             slotSpring.value = clamp(slotSpring.value + dx / tabWidthPx,
                                     0f, tabItems.length - 1f);
                             slotSpring.target = slotSpring.value;
@@ -408,20 +426,14 @@ public class SettingsActivity extends Activity {
                         return true;
                     case MotionEvent.ACTION_UP:
                     case MotionEvent.ACTION_CANCEL:
-                        if (dockDragging) {
-                            // 松手吸附最近槽位（模板 targetValue.fastRoundToInt()）
+                        if (dockPressed && tabWidthPx > 0) {
+                            // 松手吸附最近槽位（点击定位与拖动跟随统一走这里）
                             int target = (int) clamp(Math.round(slotSpring.value), 0, tabItems.length - 1);
                             if (target != selectedTab) selectTab(target);
                             else slotSpring.target = selectedTab;
                             velSpring.value = clamp(dockVel / 3000f, -1.5f, 1.5f);
                             velSpring.target = 0f;
                             offsetSpring.target = 0f;
-                        } else if (!dockPressed) {
-                            // 轻点其它槽位：直接切换（模板 LiquidBottomTab.onClick）
-                            int hit = (int) clamp(
-                                    (float) Math.floor((ev.getX() - bar.getX()) / tabWidthPx),
-                                    0, tabItems.length - 1);
-                            if (ev.getX() >= bar.getX() && hit != selectedTab) selectTab(hit);
                         }
                         dockPressed = false;
                         dockDragging = false;
@@ -615,14 +627,42 @@ public class SettingsActivity extends Activity {
         tabLabels[prev].setTextColor(IDLE_TINT);
         tabLabels[idx].setTextColor(ACCENT);
 
-        // ③ 页面淡入淡出
-        View outPage = pageContainer.getChildAt(prev);
-        View inPage = pageContainer.getChildAt(idx);
-        outPage.animate().alpha(0f).setDuration(140)
-                .withEndAction(() -> outPage.setVisibility(View.GONE)).start();
+        // ③ 页面切换动效：方向性滑动 + 缩放 + 淡入淡出（对标模板动效 Standard 320ms）
+        animatePageSwitch(pageContainer.getChildAt(prev),
+                pageContainer.getChildAt(idx), idx > prev);
+    }
+
+    /** 切屏动效：旧页反向滑出缩小淡出，新页从滑动方向滑入回弹淡入 */
+    private void animatePageSwitch(View outPage, View inPage, boolean forward) {
+        if (outPage == null || inPage == null) return;
+        float w = Math.max(1f, pageContainer.getWidth());
+        // 快速连点：先取消旧动画并复位状态，杜绝中途残留
+        outPage.animate().cancel();
+        inPage.animate().cancel();
+        outPage.setVisibility(View.VISIBLE);
+        outPage.setAlpha(1f);
         inPage.setVisibility(View.VISIBLE);
         inPage.setAlpha(0f);
-        inPage.animate().alpha(1f).setDuration(200).setStartDelay(60)
+        inPage.setScaleX(0.97f);
+        inPage.setScaleY(0.97f);
+        inPage.setTranslationX(forward ? 0.25f * w : -0.25f * w);
+        outPage.animate()
+                .translationX(forward ? -0.18f * w : 0.18f * w)
+                .scaleX(0.96f).scaleY(0.96f).alpha(0f)
+                .setDuration(300)
+                .setInterpolator(new DecelerateInterpolator(1.5f))
+                .withEndAction(() -> {
+                    outPage.setVisibility(View.GONE);
+                    outPage.setTranslationX(0f);
+                    outPage.setScaleX(1f);
+                    outPage.setScaleY(1f);
+                    outPage.setAlpha(1f);
+                })
+                .start();
+        inPage.animate()
+                .translationX(0f).scaleX(1f).scaleY(1f).alpha(1f)
+                .setDuration(340).setStartDelay(30)
+                .setInterpolator(new OvershootInterpolator(0.6f))
                 .start();
     }
 
@@ -879,7 +919,7 @@ public class SettingsActivity extends Activity {
                 {"安卓版本", Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ", REL)"},
                 {"设备型号", Build.MODEL + " (" + Build.PRODUCT + ")"},
                 {"系统架构", Build.SUPPORTED_ABIS[0]},
-                {"框架 & API", "LSPosed API 100+（libxposed）"},
+                {"框架 & API", "libxposed API 102（Modern Xposed）"},
         };
         for (String[] row : infos) {
             LinearLayout card = makeCard();
@@ -1065,7 +1105,7 @@ public class SettingsActivity extends Activity {
         addCard(box, appearanceRow());
         addCard(box, setRow(R.drawable.ic_set_drop, "液态模糊", "为模块界面增加液态玻璃效果", "set_liquid_blur"));
         addCard(box, glassConfigRow());
-        addCard(box, setRow(R.drawable.ic_set_lang, "语言", "跟随系统", null));
+        addCard(box, languageRow());
         addCard(box, setRow(R.drawable.ic_set_bell, "底栏应用角标", "在底栏“应用”按钮上显示数量角标", "set_app_badge"));
 
         // ===== 分组：桌面图标 =====
@@ -1143,6 +1183,67 @@ public class SettingsActivity extends Activity {
         return card;
     }
 
+    /** 语言行：跟随系统 / 简体中文（即时生效，重建界面） */
+    private LinearLayout languageRow() {
+        int mode = hookPrefs().getInt("locale_mode", 0);
+        LinearLayout row = setRow(R.drawable.ic_set_lang, "语言",
+                mode == 1 ? "简体中文（强制）" : "跟随系统", null);
+        row.setOnClickListener(v -> showLanguageDialog());
+        return row;
+    }
+
+    private void showLanguageDialog() {
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        int dp24 = (int) (24 * dp);
+        card.setPadding(dp24, dp24, dp24, dp24);
+        card.setBackground(LiquidGlass.glassCard(this, darkMode, 28));
+
+        TextView title = new TextView(this);
+        title.setText("界面语言");
+        title.setTextSize(18);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(INK);
+        card.addView(title);
+
+        int cur = hookPrefs().getInt("locale_mode", 0);
+        final String[] names = {"跟随系统", "简体中文（强制）"};
+        for (int i = 0; i < names.length; i++) {
+            final int idx = i;
+            TextView item = new TextView(this);
+            item.setText(names[i] + (i == cur ? "  ✓" : ""));
+            item.setTextSize(14.5f);
+            item.setTextColor(INK);
+            item.setPadding((int) (12 * dp), (int) (14 * dp), (int) (12 * dp), (int) (14 * dp));
+            item.setOnClickListener(v -> {
+                hookPrefs().edit().putInt("locale_mode", idx).apply();
+                dialog.dismiss();
+                recreate();
+            });
+            card.addView(item);
+        }
+        TextView note = new TextView(this);
+        note.setText("英文界面翻译筹备中，当前界面为简体中文。");
+        note.setTextSize(11);
+        note.setTextColor(SUB);
+        note.setPadding(0, (int) (10 * dp), 0, 0);
+        card.addView(note);
+
+        android.widget.FrameLayout rootWrap = new android.widget.FrameLayout(this);
+        int dp16 = (int) (16 * dp);
+        rootWrap.setPadding(dp16, dp16, dp16, dp16);
+        rootWrap.addView(card);
+        dialog.setContentView(rootWrap);
+        dialog.show();
+        android.view.Window w = dialog.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
+            w.setLayout((int) (320 * dp), android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
     /** 玻璃细则配置行：点击弹出模板 AppChrome 同名参数面板 */
     private LinearLayout glassConfigRow() {
         LinearLayout row = setRow(R.drawable.ic_set_palette, "玻璃细则配置",
@@ -1217,6 +1318,188 @@ public class SettingsActivity extends Activity {
     }
 
     /** 占位页面：标题 + 副标题 + 卡片 */    /** 占位页面：标题 + 副标题 + 卡片 */
+    /** 拓展页：激活指引 + 配置备份/恢复 + 关于（真实可用功能） */
+    private View makeExtensionPage() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (22 * dp);
+        box.setPadding(pad, (int) (26 * dp), pad, (int) (108 * dp));
+        scroll.addView(box, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT));
+
+        TextView title = new TextView(this);
+        title.setText("拓展");
+        title.setTextSize(26);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(INK);
+        box.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText("激活指引 · 数据管理 · 关于模块");
+        sub.setTextSize(14);
+        sub.setTextColor(SUB);
+        sub.setPadding(0, (int) (6 * dp), 0, (int) (16 * dp));
+        box.addView(sub);
+
+        // ===== 分组：激活指引 =====
+        box.addView(sectionHeader("激活指引"));
+        LinearLayout guide = makeCard();
+        guide.setOrientation(LinearLayout.VERTICAL);
+        guide.setPadding((int) (18 * dp), (int) (16 * dp), (int) (18 * dp), (int) (16 * dp));
+        String[] steps = {
+                "① 打开 LSPosed →「模块」→ 找到 PureStart 并启用",
+                "② 在「作用域」中勾选需要净化的应用（本模块已内置推荐作用域）",
+                "③ 强制停止或重启勾选的目标应用（无需重启手机）",
+                "④ 回到本模块「应用」页确认对应应用已显示启用状态",
+        };
+        for (String s : steps) {
+            TextView t = new TextView(this);
+            t.setText(s);
+            t.setTextSize(13.5f);
+            t.setTextColor(INK);
+            t.setLineSpacing(3 * dp, 1f);
+            t.setPadding(0, (int) (3 * dp), 0, (int) (3 * dp));
+            guide.addView(t);
+        }
+        TextView faq = new TextView(this);
+        faq.setText("排查：拦截无效时请依次确认模块已启用、作用域已勾选、目标应用已重启；"
+                + "本模块基于 libxposed API 102，需 LSPosed 1.9.2+ 等现代框架。");
+        faq.setTextSize(12);
+        faq.setTextColor(SUB);
+        faq.setLineSpacing(3 * dp, 1f);
+        faq.setPadding(0, (int) (10 * dp), 0, 0);
+        guide.addView(faq);
+        addCard(box, guide);
+
+        // ===== 分组：数据管理 =====
+        box.addView(sectionHeader("数据管理"));
+        LinearLayout backupCard = setRow(R.drawable.ic_set_refresh, "备份配置",
+                "导出全部应用开关与偏好为 JSON 文件", null);
+        backupCard.setOnClickListener(v -> {
+            try {
+                android.content.Intent i = new android.content.Intent(
+                        android.content.Intent.ACTION_CREATE_DOCUMENT);
+                i.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+                i.setType("application/json");
+                i.putExtra(android.content.Intent.EXTRA_TITLE, "purestart-backup.json");
+                startActivityForResult(i, 41);
+            } catch (Throwable t) {
+                toast("无法打开文件选择器：" + t.getMessage());
+            }
+        });
+        addCard(box, backupCard);
+
+        LinearLayout restoreCard = setRow(R.drawable.ic_set_drop, "恢复配置",
+                "从备份 JSON 导入应用开关与偏好", null);
+        restoreCard.setOnClickListener(v -> {
+            try {
+                android.content.Intent i = new android.content.Intent(
+                        android.content.Intent.ACTION_OPEN_DOCUMENT);
+                i.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+                i.setType("application/json");
+                startActivityForResult(i, 42);
+            } catch (Throwable t) {
+                toast("无法打开文件选择器：" + t.getMessage());
+            }
+        });
+        addCard(box, restoreCard);
+
+        // ===== 分组：关于 =====
+        box.addView(sectionHeader("关于"));
+        LinearLayout about = makeCard();
+        about.setOrientation(LinearLayout.VERTICAL);
+        about.setPadding((int) (18 * dp), (int) (16 * dp), (int) (18 * dp), (int) (16 * dp));
+        String[] infos = {
+                "开源地址", "github.com/yz8023/PureStart",
+                "模块版本", "v15.0.2 (ModKit Edition)",
+                "Hook 接口", "libxposed API 102（Modern Xposed）",
+                "构建时间", BuildInfo.BUILD_TIME,
+        };
+        for (int i = 0; i < infos.length; i += 2) {
+            TextView line = new TextView(this);
+            line.setText(infos[i] + "：" + infos[i + 1]);
+            line.setTextSize(13);
+            line.setTextColor(i % 4 == 0 ? SUB : INK);
+            line.setPadding(0, (int) (3 * dp), 0, (int) (3 * dp));
+            about.addView(line);
+        }
+        addCard(box, about);
+        return scroll;
+    }
+
+    private void toast(String msg) {
+        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    /** 备份：全部偏好导出为 JSON */
+    private void exportPrefs(android.net.Uri uri) {
+        try {
+            org.json.JSONObject jo = new org.json.JSONObject();
+            java.util.Map<String, ?> all = hookPrefs().getAll();
+            for (java.util.Map.Entry<String, ?> e : all.entrySet()) {
+                Object v = e.getValue();
+                if (v instanceof Boolean) jo.put(e.getKey(), (Boolean) v);
+                else if (v instanceof Integer) jo.put(e.getKey(), (Integer) v);
+                else if (v instanceof Long) jo.put(e.getKey(), (Long) v);
+                else if (v instanceof Float) jo.put(e.getKey(), (Float) v);
+                else if (v instanceof String) jo.put(e.getKey(), (String) v);
+            }
+            java.io.OutputStream os = getContentResolver().openOutputStream(uri);
+            if (os == null) { toast("导出失败：无法写入"); return; }
+            os.write(jo.toString().getBytes("UTF-8"));
+            os.close();
+            toast("已导出 " + jo.length() + " 项配置");
+        } catch (Throwable t) {
+            toast("导出失败：" + t.getMessage());
+        }
+    }
+
+    /** 恢复：从 JSON 导入偏好并重建界面 */
+    private void importPrefs(android.net.Uri uri) {
+        try {
+            java.io.InputStream is = getContentResolver().openInputStream(uri);
+            if (is == null) { toast("导入失败：无法读取"); return; }
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
+            is.close();
+            org.json.JSONObject jo = new org.json.JSONObject(
+                    new String(bos.toByteArray(), "UTF-8"));
+            android.content.SharedPreferences.Editor ed = hookPrefs().edit();
+            java.util.Iterator<String> it = jo.keys();
+            int count = 0;
+            while (it.hasNext()) {
+                String k = it.next();
+                Object v = jo.get(k);
+                if (v instanceof Boolean) ed.putBoolean(k, (Boolean) v);
+                else if (v instanceof Integer) ed.putInt(k, (Integer) v);
+                else if (v instanceof Long) ed.putLong(k, (Long) v);
+                else if (v instanceof Float) ed.putFloat(k, (Float) v);
+                else if (v instanceof String) ed.putString(k, (String) v);
+                else continue;
+                count++;
+            }
+            ed.apply();
+            toast("已导入 " + count + " 项配置，界面即将刷新");
+            barWrap.postDelayed(this::recreate, 600);
+        } catch (Throwable t) {
+            toast("导入失败：" + t.getMessage());
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode,
+                                    android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (data == null || data.getData() == null) return;
+        if (requestCode == 41 && resultCode == RESULT_OK) exportPrefs(data.getData());
+        else if (requestCode == 42 && resultCode == RESULT_OK) importPrefs(data.getData());
+    }
+
     private View makePage(String title, String subtitle, String body) {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);

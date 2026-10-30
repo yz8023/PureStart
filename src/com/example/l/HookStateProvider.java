@@ -29,20 +29,29 @@ public class HookStateProvider extends ContentProvider {
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
         Bundle b = new Bundle();
-        if ("enabled".equals(method) && arg != null) {
-            boolean v = true;
-            try {
-                Context c = getContext();
-                if (c != null) {
-                    v = c.getSharedPreferences("settings", Context.MODE_PRIVATE)
-                            .getBoolean("hook_" + arg, true);
-                }
-            } catch (Throwable t) {
-                v = true;
-            }
-            b.putBoolean("v", v);
+        if (arg == null) return b;
+        if ("enabled".equals(method)) {
+            b.putBoolean("v", readPref("hook_" + arg, true));
+        } else if ("config".equals(method)) {
+            // 细分子项开关一并返回（Hook 侧 2s 缓存，回调触发时查询）
+            b.putBoolean("enabled",   readPref("hook_" + arg, true));
+            b.putBoolean("splash",    readPref("sub_splash_" + arg, true));
+            b.putBoolean("feed",      readPref("sub_feed_" + arg, true));
+            b.putBoolean("popup",     readPref("sub_popup_" + arg, true));
+            b.putBoolean("dexfinder", readPref("sub_dexfinder_" + arg, true));
         }
         return b;
+    }
+
+    private boolean readPref(String key, boolean def) {
+        try {
+            Context c = getContext();
+            if (c != null) {
+                return c.getSharedPreferences("settings", Context.MODE_PRIVATE)
+                        .getBoolean(key, def);
+            }
+        } catch (Throwable ignored) {}
+        return def;
     }
 
     @Override

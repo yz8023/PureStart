@@ -14,19 +14,23 @@ import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
-import java.util.List;
 
 /**
  * PureStart (ModKit Edition) — 现代化架构 Xposed 模块入口
  * 全面整合 XiaoCan 净化、通用广告过滤与 DexFinder 自动特征识别
+ *
+ * v15.0.2 关键修正：
+ *  - 开关查询改为「拦截回调触发时懒查询」（此前在 onPackageLoaded 过早调用，
+ *    目标进程尚未 attach，Provider 必然拿不到 → 现在回调时应用已就绪）；
+ *  - 细分子项开关（开屏/信息流/弹窗/DexFinder）真正接入 Hook 判定；
+ *  - 通用引擎升级：启动器安全判定 + 全自动「跳过」点击 + 广告弹窗拦截。
  */
-public class Main extends XposedModule {
+public class Main extends XposedModule implements HookGate {
 
     private static final String TAG = "ModKit";
 
-    private static final String[][] TARGETS = {
+    static final String[][] TARGETS = {
             { "com.realtech.xiaocan", "小蚕惠生活 · 开屏及信息流去广告、弹窗拦截" },
             { "com.netease.cloudmusic", "网易云音乐 · 开屏广告/横幅与信息流净化" },
             { "com.luna.music", "汽水音乐 · 冷启动开屏广告拦截" },
@@ -43,15 +47,27 @@ public class Main extends XposedModule {
             { "com.autonavi.minimap", "高德地图 · 开屏与推广弹窗拦截" },
             { "com.zhihu.android", "知乎 · 开屏与信息流回答卡片广告拦截" },
             { "com.dragon.read", "红果免费短剧 · 开屏与激励广告跳过" },
-            { "com.baidu.netdisk", "百度网盘 · 启动页与营销弹窗净化" },
+            { "com.baidu.netdisk", "百度网盘 · 启动页与营销广告净化" },
     };
 
     private static final Uri STATE_URI = Uri.parse("content://com.example.l.hookstate");
     private ContentResolver resolver;
-    private long lastToggleCheck;
-    private boolean cachedEnabled = true;
-    private boolean toggleLogged;
     private String currentPkg;
+
+    /** 细分子项 key → 偏好名（设置页 AppDetailDialog 写入的同名键） */
+    private static final String[][] SUB_KEYS = {
+            { "enabled",   "hook_" },
+            { "splash",    "sub_splash_" },
+            { "feed",      "sub_feed_" },
+            { "popup",     "sub_popup_" },
+            { "dexfinder", "sub_dexfinder_" },
+    };
+
+    /** 闸门缓存（2s；回调触发时查询，此刻目标应用已 attach，Provider 可达） */
+    private final Bundle cfgCache = new Bundle();
+    private long cfgAt = -2000;
+    private String cfgPkg;
+    private boolean cfgLogged;
 
     public Main() {
         super();
@@ -69,34 +85,47 @@ public class Main extends XposedModule {
         return resolver;
     }
 
-    private boolean hookEnabled() {
+    @Override
+    public boolean on(String key) {
+        String pkg = currentPkg;
         long now = SystemClock.uptimeMillis();
-        if (now - lastToggleCheck < 2000) return cachedEnabled;
-        lastToggleCheck = now;
-        try {
-            ContentResolver r = resolver();
-            if (r != null) {
-                Bundle b = r.call(STATE_URI, "enabled", currentPkg, null);
-                if (b != null && b.containsKey("v")) {
-                    boolean e = b.getBoolean("v", true);
-                    if (e != cachedEnabled || !toggleLogged) {
-                        log(Log.INFO, TAG, "toggle(provider) = " + e);
-                        toggleLogged = true;
+        if (pkg == null || !pkg.equals(cfgPkg) || now - cfgAt > 2000) {
+            cfgAt = now;
+            cfgPkg = pkg;
+            boolean got = false;
+            // ① 首选：跨进程 Provider（设置页实时勾选状态）
+            try {
+                ContentResolver r = resolver();
+                if (r != null && pkg != null) {
+                    Bundle b = r.call(STATE_URI, "config", pkg, null);
+                    if (b != null && b.containsKey("enabled")) {
+                        cfgCache.clear();
+                        cfgCache.putAll(b);
+                        got = true;
                     }
-                    cachedEnabled = e;
-                    return e;
                 }
+            } catch (Throwable ignored) {}
+            // ② 兜底：框架远程偏好
+            if (!got) {
+                try {
+                    SharedPreferences sp = getRemotePreferences("settings");
+                    if (sp != null) {
+                        cfgCache.clear();
+                        for (String[] sk : SUB_KEYS) {
+                            cfgCache.putBoolean(sk[0], sp.getBoolean(sk[1] + pkg, true));
+                        }
+                        got = true;
+                    }
+                } catch (Throwable ignored) {}
             }
-        } catch (Throwable ignored) {}
-        try {
-            SharedPreferences sp = getRemotePreferences("settings");
-            if (sp != null && sp.contains("hook_" + currentPkg)) {
-                cachedEnabled = sp.getBoolean("hook_" + currentPkg, true);
-                return cachedEnabled;
+            if (!got) cfgCache.clear();   // 双通道都失败 → 全默认 true（拦截）
+            if (!cfgLogged) {
+                log(Log.INFO, TAG, "gate(" + key + ") provider=" + got
+                        + " enabled=" + cfgCache.getBoolean("enabled", true));
+                cfgLogged = true;
             }
-        } catch (Throwable ignored) {}
-        cachedEnabled = true;
-        return true;
+        }
+        return cfgCache.getBoolean(key, true);
     }
 
     @Override
@@ -107,23 +136,18 @@ public class Main extends XposedModule {
         for (String[] t : TARGETS) {
             if (!t[0].equals(pkg)) continue;
             currentPkg = pkg;
-            log(Log.INFO, TAG, "Loaded into " + pkg);
-
-            if (!hookEnabled()) {
-                log(Log.INFO, TAG, "Hook disabled by user for " + pkg);
-                return;
-            }
+            log(Log.INFO, TAG, "Loaded into " + pkg + " (module v15.0.2, API 102)");
 
             if ("com.realtech.xiaocan".equals(pkg)) {
                 try {
-                    XiaoCanHook.install(this, cl);
-                    hookLifecycleForShell(this, cl, pkg);
+                    XiaoCanHook.install(this, cl, this);
                 } catch (Throwable e) {
                     log(Log.ERROR, TAG, "XiaoCan hook failed", e);
                 }
+                hookLifecycleForShell(this, cl);
             } else {
                 try {
-                    UniversalAdHook.install(this, cl, pkg);
+                    UniversalAdHook.install(this, cl, pkg, this);
                 } catch (Throwable e) {
                     log(Log.ERROR, TAG, "UniversalAdHook failed for " + pkg, e);
                 }
@@ -132,7 +156,8 @@ public class Main extends XposedModule {
         }
     }
 
-    private void hookLifecycleForShell(final XposedInterface xposed, final ClassLoader initialLoader, final String pkg) {
+    /** 应用 attach 后用真实 ClassLoader 重试（壳应用首次 install 可能加载不到业务类） */
+    private void hookLifecycleForShell(final XposedInterface xposed, final ClassLoader initialLoader) {
         try {
             Method attach = Application.class.getDeclaredMethod("attach", Context.class);
             xposed.hook(attach).intercept(new XposedInterface.Hooker() {
@@ -143,7 +168,11 @@ public class Main extends XposedModule {
                     if (app instanceof Application) {
                         ClassLoader cl = ((Application) app).getClassLoader();
                         if (cl != null && cl != initialLoader) {
-                            XiaoCanHook.install(xposed, cl);
+                            try {
+                                XiaoCanHook.install(xposed, cl, Main.this);
+                            } catch (Throwable e) {
+                                log(Log.ERROR, TAG, "XiaoCan re-hook after attach failed", e);
+                            }
                         }
                     }
                     return r;
