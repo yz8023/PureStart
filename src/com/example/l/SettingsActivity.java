@@ -147,9 +147,47 @@ public class SettingsActivity extends Activity {
                 && (getResources().getConfiguration().uiMode
                         & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
                 == android.content.res.Configuration.UI_MODE_NIGHT_YES);
-        if (darkMode) {
+        if (mode == 3) {
+            darkMode = true;
             setTheme(android.R.style.Theme_Material_NoActionBar);
-            PAGE_BG = 0xFF14161D;
+            PAGE_BG = 0xFF0B132B;
+            ACCENT = 0xFF38BDF8;
+            INK = 0xFFF0F9FF;
+            SUB = 0xFF94A3B8;
+            IDLE_TINT = 0xFFBAE6FD;
+            BAR_BG = 0x990F172A;
+            RIPPLE = 0x3338BDF8;
+            STATUS_GREEN = 0xFF34D399;
+            BADGE_RED = 0xFFF87171;
+            CARD_BG = 0xB31E293B;
+            FIELD_BG = 0xCC1E293B;
+            PILL_GRAY = 0xFF475569;
+            HINT = 0xFF64748B;
+            BACKDROP_BASE = 0xFF0A0F1D;
+            BLOB1 = 0xFF0284C7;
+            BLOB2 = 0xFF2563EB;
+            BLOB3 = 0xFF0D9488;
+            PILL_TAB = 0x5538BDF8;
+        } else if (darkMode) {
+            setTheme(android.R.style.Theme_Material_NoActionBar);
+            PAGE_BG = 0xFF09090B;
+            ACCENT = 0xFF60A5FA;
+            INK = 0xFFF4F4F5;
+            SUB = 0xFFA1A1AA;
+            IDLE_TINT = 0xFFD4D4D8;
+            BAR_BG = 0xCC18181B;
+            RIPPLE = 0x3360A5FA;
+            STATUS_GREEN = 0xFF4ADE80;
+            BADGE_RED = 0xFFF87171;
+            CARD_BG = 0xB318181B;
+            FIELD_BG = 0xCC27272A;
+            PILL_GRAY = 0xFF52525B;
+            HINT = 0xFF71717A;
+            BACKDROP_BASE = 0xFF050507;
+            BLOB1 = 0xFF1E3A8A;
+            BLOB2 = 0xFF581C87;
+            BLOB3 = 0xFF065F46;
+            PILL_TAB = 0x4460A5FA;
             ACCENT = 0xFF818CF8;
             INK = 0xFFE8EAF2;
             SUB = 0xFFA3A9BC;
@@ -249,8 +287,8 @@ public class SettingsActivity extends Activity {
         barWrap.setWillNotDraw(false);   // ViewGroup 默认不调 onDraw，必须打开
         GradientDrawable barBg = new GradientDrawable();
         barBg.setColor(BAR_BG);
-        barBg.setCornerRadius(26 * dp);
-        barBg.setStroke((int) dp, 0x33FFFFFF);
+        barBg.setCornerRadius(30 * dp);
+        barBg.setStroke((int) (1.2f * dp), darkMode ? 0x33FFFFFF : 0x80FFFFFF);
         barWrap.setBackground(barBg);
         barWrap.setElevation(9 * dp);
         barWrap.setClipChildren(false);   // 关闭裁剪：指示条过冲时能跳出底栏边框
@@ -499,20 +537,42 @@ public class SettingsActivity extends Activity {
         statusCard.setPadding((int) (20 * dp), (int) (18 * dp),
                 (int) (14 * dp), (int) (18 * dp));
 
-        ImageView modIcon = new ImageView(this);
-        // ⚠R.mipmap.ic_launcher 前景是 2048×2048 JPG，直接 setImageResource 会同步解码
-        //   16MB 位图（启动变卡 + GC 压力全局抖动）→ 按目标 40dp(256px 上限) 降采样解码
-        android.graphics.BitmapFactory.Options bo = new android.graphics.BitmapFactory.Options();
-        bo.inJustDecodeBounds = true;
-        android.graphics.BitmapFactory.decodeResource(
-                getResources(), R.drawable.ic_launcher_foreground, bo);
-        bo.inJustDecodeBounds = false;
-        bo.inSampleSize = 1;
-        while (bo.outWidth / (bo.inSampleSize * 2) >= 256) bo.inSampleSize *= 2;
-        modIcon.setImageBitmap(android.graphics.BitmapFactory.decodeResource(
-                getResources(), R.drawable.ic_launcher_foreground, bo));
-        statusCard.addView(modIcon, new LinearLayout.LayoutParams(
-                (int) (40 * dp), (int) (40 * dp)));
+        final HoldShieldView shield = new HoldShieldView(this);
+        boolean allOn = true;
+        if (appsData != null && !appsData.isEmpty()) {
+            for (AppEntry entry : appsData) {
+                if (entry.installed && !isHookEnabled(entry.pkg)) {
+                    allOn = false;
+                    break;
+                }
+            }
+        }
+        shield.setActive(allOn);
+        shield.setListener(new HoldShieldView.Listener() {
+            @Override
+            public void onHoldComplete() {
+                boolean targetState = !shield.isActive();
+                shield.setActive(targetState);
+                if (appsData != null) {
+                    for (AppEntry e : appsData) {
+                        setHookEnabled(e.pkg, targetState);
+                    }
+                }
+                updateScopeBadge();
+                renderAppsList();
+                android.widget.Toast.makeText(SettingsActivity.this,
+                        targetState ? "已一键开启所有应用广告拦截与优化" : "已重置并关闭所有应用适配拦截",
+                        android.widget.Toast.LENGTH_SHORT).show();
+            }
+            @Override
+            public void onTapHint() {
+                android.widget.Toast.makeText(SettingsActivity.this,
+                        "长按盾牌图标 1 秒，一键全局开关全部应用净化",
+                        android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+        statusCard.addView(shield, new LinearLayout.LayoutParams(
+                (int) (48 * dp), (int) (48 * dp)));
 
         LinearLayout mid = new LinearLayout(this);
         mid.setOrientation(LinearLayout.VERTICAL);
@@ -877,24 +937,18 @@ public class SettingsActivity extends Activity {
         return card;
     }
 
-    /** 外观行：点击弹出三选一（跟随系统/浅色/深色），副标题显示当前选择 */
+    /** 外观行：点击弹出液态玻璃质感弹窗，副标题显示当前选择 */
     private LinearLayout appearanceRow() {
-        final String[] names = {"跟随系统", "浅色模式", "深色模式"};
+        final String[] names = {"跟随系统", "浅色液态玻璃", "深色液态玻璃", "极光流体玻璃"};
         int cur = hookPrefs().getInt("theme_mode", 0);
-        String sub = names[cur];
+        String sub = names[cur >= 0 && cur < names.length ? cur : 0];
         if (cur == 0) sub += darkMode ? "（当前深色）" : "（当前浅色）";
         LinearLayout row = setRow(R.drawable.ic_set_palette, "外观", sub, null);
-        row.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
-                .setTitle("外观")
-                .setSingleChoiceItems(names, hookPrefs().getInt("theme_mode", 0),
-                        (d, which) -> {
-                            d.dismiss();
-                            if (which != hookPrefs().getInt("theme_mode", -1)) {
-                                hookPrefs().edit().putInt("theme_mode", which).apply();
-                                recreate();   // 重建以应用新主题
-                            }
-                        })
-                .show());
+        row.setOnClickListener(v -> {
+            ThemeDialog.show(this, darkMode, which -> {
+                recreate();
+            });
+        });
         return row;
     }
 
@@ -1228,6 +1282,15 @@ public class SettingsActivity extends Activity {
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
         }
+        // 点击卡片进入细分选项液态玻璃弹窗
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setOnClickListener(v -> {
+            AppDetailDialog.show(this, e.pkg, e.label, e.desc, darkMode, () -> {
+                // 子项开关更新回调
+                renderAppsList();
+            });
+        });
         return card;
     }
 
