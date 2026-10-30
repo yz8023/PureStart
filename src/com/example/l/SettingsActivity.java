@@ -1056,21 +1056,41 @@ public class SettingsActivity extends Activity implements GlassCardView.Host {
         final android.widget.Switch sw = new android.widget.Switch(this);
         sw.setChecked(isLauncherAliasEnabled());
         sw.setOnCheckedChangeListener((v, checked) -> {
-            try {
-                getPackageManager().setComponentEnabledSetting(
-                        new android.content.ComponentName(this, "com.example.l.IconAlias"),
-                        checked ? android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                                : android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                        android.content.pm.PackageManager.DONT_KILL_APP);
-                hookPrefs().edit().putBoolean("set_desktop_icon", checked).apply();
-            } catch (Throwable t) {
-                android.widget.Toast.makeText(this, "切换失败：" + t,
-                        android.widget.Toast.LENGTH_SHORT).show();
-                sw.setChecked(isLauncherAliasEnabled());
+            if (!checked) {
+                // 隐藏前必须确认：隐藏后桌面与 LSPosed「打开」都会失效，给足恢复方式
+                sw.setChecked(true);   // 先回弹，确认后才真正隐藏
+                new android.app.AlertDialog.Builder(this)
+                        .setTitle("隐藏桌面图标")
+                        .setMessage("隐藏后将无法从桌面打开，LSPosed 的「打开」也可能失效。\n\n"
+                                + "恢复方式（任选其一）：\n"
+                                + "① adb shell am broadcast -a com.example.l.action.SHOW_ICON\n"
+                                + "② adb shell pm enable com.example.l/.IconAlias\n"
+                                + "③ 系统设置 → 应用 → PureStart → 卸载后重装（设置会丢失）")
+                        .setPositiveButton("仍要隐藏", (d, w) -> setDesktopIcon(sw, false))
+                        .setNegativeButton("取消", null)
+                        .show();
+            } else {
+                setDesktopIcon(sw, true);
             }
         });
         card.addView(sw);
         return card;
+    }
+
+    private void setDesktopIcon(android.widget.Switch sw, boolean show) {
+        try {
+            getPackageManager().setComponentEnabledSetting(
+                    new android.content.ComponentName(this, "com.example.l.IconAlias"),
+                    show ? android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                            : android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP);
+            hookPrefs().edit().putBoolean("set_desktop_icon", show).apply();
+            sw.setChecked(show);
+        } catch (Throwable t) {
+            android.widget.Toast.makeText(this, "切换失败：" + t,
+                    android.widget.Toast.LENGTH_SHORT).show();
+            sw.setChecked(isLauncherAliasEnabled());
+        }
     }
 
     /** 桌面图标的真实状态以 PackageManager 为准（LSPosed 强制显示等外部改动也能正确反映） */
