@@ -17,26 +17,31 @@ public final class LiquidGlass {
     private LiquidGlass() {}
 
     /**
-     * 生成液态玻璃卡片背景
+     * 生成液态玻璃卡片背景（独立窗口弹窗用退化版）
+     * 模板规则：跨窗无法采样 backdrop → 退化为半透明蒙层，
+     * 公式 = 0.26 + glassTintAlpha + opacity × 0.18（clamp 0..0.72），描边随 glassBorderAlpha。
      * @param isDark 是否深色模式
      * @param cornerRadiusDp 圆角 (dp)
      */
     public static GradientDrawable glassCard(Context context, boolean isDark, float cornerRadiusDp) {
         float density = context.getResources().getDisplayMetrics().density;
+        android.content.SharedPreferences sp = context.getSharedPreferences(
+                "settings", android.content.Context.MODE_PRIVATE);
+        float opacity = clamp(sp.getInt("glass_opacity", 55) / 100f, 0f, 1f);
+        float border = clamp(sp.getInt("glass_border", 20) / 100f, 0f, 0.8f);
+        float alpha = clamp(0.26f + 0.08f + opacity * 0.18f, 0f, 0.72f);
+
         GradientDrawable gd = new GradientDrawable();
         gd.setShape(GradientDrawable.RECTANGLE);
         gd.setCornerRadius(cornerRadiusDp * density);
-
-        if (isDark) {
-            // 深色液态玻璃：高透深灰底色 + 浅白物理微光边框
-            gd.setColor(0xCC18181B);
-            gd.setStroke((int) (1f * density), 0x26FFFFFF);
-        } else {
-            // 浅色液态玻璃：极高通透乳白 + 高光边框
-            gd.setColor(0xD9FFFFFF);
-            gd.setStroke((int) (1f * density), 0x4DFFFFFF);
-        }
+        int surface = isDark ? 0x28292D : 0xF0F0F4;   // M3 surfaceContainer
+        gd.setColor((Math.round(alpha * 255f) << 24) | surface);
+        gd.setStroke((int) (1f * density), (Math.round(border * 255f) << 24) | 0xFFFFFF);
         return gd;
+    }
+
+    private static float clamp(float v, float lo, float hi) {
+        return v < lo ? lo : Math.min(v, hi);
     }
 
     /**

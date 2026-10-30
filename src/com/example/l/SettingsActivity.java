@@ -54,7 +54,7 @@ import android.widget.TextView;
  *
  * 纯原生 View 实现，零第三方依赖（javac + d8 + aapt2 可直接构建）
  */
-public class SettingsActivity extends Activity {
+public class SettingsActivity extends Activity implements GlassCardView.Host {
 
     private static final String[] TAB_NAMES = {"首页", "应用", "拓展", "设置"};
     private static final int[] TAB_ICON_IDLE = {
@@ -177,6 +177,8 @@ public class SettingsActivity extends Activity {
     private TextView glassChevron;                   // 折叠指示箭头
     private GradientDrawable barBgDrawable;          // 底栏容器底色引用（实时预览改透明度）
     private int barSurfaceColor = 0xF0F0F4;          // 当前主题的 surfaceContainer 底色
+    private final Paint cardSamplePaint = new Paint(
+            Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);   // 卡片采样画笔（vibrancy 随动）
     private BackdropView backdrop;           // 背景层引用
     private boolean blurBusy;                // 捕获中标志（防重入）
     private long lastGlassMs;                // 上次玻璃重捕时刻（节流用）
@@ -697,11 +699,6 @@ public class SettingsActivity extends Activity {
         return clamp(hookPrefs().getInt("glass_opacity", 55) / 100f, 0f, 1f);
     }
 
-    /** 玻璃细则（模板 AppChrome）：折射强度 0..1（View 近似驱动边缘亮棱与镜面高光） */
-    private float glassRefraction() {
-        return clamp(hookPrefs().getInt("glass_refraction", 100) / 100f, 0f, 1f);
-    }
-
     /** 玻璃细则：模糊半径 dp → 5×5 采样间距；0 = 清晰通透（模板 blur(4dp)） */
     private int fgBlurStep() {
         return (int) clamp(Math.round(hookPrefs().getInt("glass_blur", 4)), 0, 12);
@@ -724,15 +721,15 @@ public class SettingsActivity extends Activity {
 
     /** 鲜艳增强（模板 vibrancy）：采样背景饱和度 +18% */
     private void applyVibrancy() {
+        ColorMatrixColorFilter cf = null;
         if (hookPrefs().getBoolean("glass_vibrancy", true)) {
             ColorMatrix cm = new ColorMatrix();
             cm.setSaturation(1.18f);
-            contentPaint.setColorFilter(new ColorMatrixColorFilter(cm));
-            glassPaint.setColorFilter(new ColorMatrixColorFilter(cm));
-        } else {
-            contentPaint.setColorFilter(null);
-            glassPaint.setColorFilter(null);
+            cf = new ColorMatrixColorFilter(cm);
         }
+        contentPaint.setColorFilter(cf);
+        glassPaint.setColorFilter(cf);
+        cardSamplePaint.setColorFilter(cf);   // 全部玻璃卡片采样层同步鲜艳增强
     }
 
     private void animateTint(ImageView iv, int from, int to) {
@@ -952,17 +949,11 @@ public class SettingsActivity extends Activity {
         return scroll;
     }
 
-    /** 全局液态玻璃卡片（双层半透明底色 + 1dp 物理折射高光微光描边 + 24dp 优雅大圆角） */
+    /** 全局液态玻璃卡片：采样身后模糊背景 + 模板染色公式 + 折射棱光 + 高光描边
+     *  （GlassCardView，玻璃细则滑杆实时生效；详见类注释） */
     private LinearLayout makeCard() {
-        LinearLayout card = new LinearLayout(this);
+        GlassCardView card = new GlassCardView(this, this);
         card.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(CARD_BG);
-        bg.setCornerRadius(24 * dp);
-        // 玻璃细则（模板 AppChrome.glassBorderAlpha）：卡片高光描边强度
-        bg.setStroke((int) (1f * dp), cardStrokeColor());
-        card.setTag("glass_card");   // 玻璃细则实时预览：滑杆改动时全树重描边
-        card.setBackground(bg);
         return card;
     }
 
@@ -1404,25 +1395,74 @@ public class SettingsActivity extends Activity {
         if (barBgDrawable != null) barBgDrawable.setColor(BAR_BG);
     }
 
+    // ==== GlassCardView.Host：全卡玻璃实时采样宿主（玻璃细则参数逐次实时读取） ====
+
+    @Override
+    public Bitmap glassBackdropSample(int blurDp) {
+        if (backdrop == null) return null;
+        int n = backdrop.levelCount();
+        if (n == 0) return null;
+        int idx = (int) clamp(Math.round(blurDp / 8f), 0, n - 1);
+        return backdrop.level(idx);
+    }
+
+    @Override
+    public int glassBackdropWidth() { return backdrop != null ? Math.max(1, backdrop.getWidth()) : 1; }
+
+    @Override
+    public int glassBackdropHeight() { return backdrop != null ? Math.max(1, backdrop.getHeight()) : 1; }
+
+    /** 模板 backdrop 路径染色公式：glassTintAlpha + opacity × 0.04（卡片高通透） */
+    @Override
+    public float glassCardTintAlpha() {
+        return clamp(0.08f + glassOpacity() * 0.04f, 0f, 0.45f);
+    }
+
+    /** 模板退化路径公式：0.26 + glassTintAlpha + opacity × 0.18 */
+    @Override
+    public float glassFallbackAlpha() {
+        return clamp(0.26f + 0.08f + glassOpacity() * 0.18f, 0f, 0.72f);
+    }
+
+    @Override
+    public int glassSurfaceColor() { return barSurfaceColor; }
+
+    @Override
+    public int glassRimColor() { return cardStrokeColor(); }
+
+    /** 玻璃细则（模板 AppChrome）：折射强度 0..1（View 近似驱动棱光强度） */
+    @Override
+    public float glassRefraction() {
+        return clamp(hookPrefs().getInt("glass_refraction", 100) / 100f, 0f, 1f);
+    }
+
+    @Override
+    public int glassBlurDp() {
+        return hookPrefs().getInt("glass_blur", 4);
+    }
+
+    @Override
+    public Paint glassCardSamplePaint() { return cardSamplePaint; }
+
     private int cardStrokeColor() {
         int bAlpha = Math.round(clamp(hookPrefs().getInt("glass_border", 20) / 100f, 0f, 0.8f) * 255f);
         return (bAlpha << 24) | 0xFFFFFF;
     }
 
-    /** 全视图树重描卡片高光描边（高光滑杆实时预览） */
+    /** 全视图树重绘玻璃卡片：染色/棱光/描边/采样层级全部实时刷新 */
     private void restrokeCards() {
-        if (pageContainer != null) restrokeRecursive(pageContainer, cardStrokeColor());
+        if (pageContainer != null) invalidateGlassRecursive(pageContainer);
     }
 
-    private void restrokeRecursive(View v, int strokeCol) {
+    private void invalidateGlassRecursive(View v) {
         if (v == null) return;
-        if ("glass_card".equals(v.getTag())
-                && v.getBackground() instanceof GradientDrawable) {
-            ((GradientDrawable) v.getBackground()).setStroke((int) (1f * dp), strokeCol);
+        if (v instanceof GlassCardView) {
+            v.invalidate();   // 染色层/棱光/描边在 onDraw 实时读取玻璃细则
+            return;
         }
         if (v instanceof ViewGroup) {
             ViewGroup g = (ViewGroup) v;
-            for (int i = 0; i < g.getChildCount(); i++) restrokeRecursive(g.getChildAt(i), strokeCol);
+            for (int i = 0; i < g.getChildCount(); i++) invalidateGlassRecursive(g.getChildAt(i));
         }
     }
 
@@ -1588,7 +1628,7 @@ public class SettingsActivity extends Activity {
         about.setPadding((int) (18 * dp), (int) (16 * dp), (int) (18 * dp), (int) (16 * dp));
         String[] infos = {
                 "开源地址", "github.com/yz8023/PureStart",
-                "模块版本", "v15.0.3 (ModKit Edition)",
+                "模块版本", "v15.0.4 (ModKit Edition)",
                 "Hook 接口", "libxposed API 102（Modern Xposed）",
                 "构建时间", BuildInfo.BUILD_TIME,
         };
@@ -2115,8 +2155,19 @@ public class SettingsActivity extends Activity {
                 Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
         private Bitmap blurred;   // 缓存模糊结果，只在尺寸变化时重算
 
+        private java.util.ArrayList<Bitmap> levels = new java.util.ArrayList<>();
+
         BackdropView(Context c) {
             super(c);
+        }
+
+        /** 多级模糊链档位数（供卡片按模糊滑杆取档） */
+        public int levelCount() { return levels.size(); }
+
+        /** 取第 idx 级模糊位图（0 = 最清晰） */
+        public Bitmap level(int idx) {
+            if (levels.isEmpty()) return null;
+            return levels.get(Math.max(0, Math.min(idx, levels.size() - 1)));
         }
 
         @Override
@@ -2129,7 +2180,10 @@ public class SettingsActivity extends Activity {
             Canvas c = new Canvas(base);
             c.scale(base.getWidth() / (float) w, base.getHeight() / (float) h);
             drawPattern(c, w, h);
-            // ② 连续减半 → 近似高斯模糊
+            // ② 连续减半 → 近似高斯模糊；保留全级别供卡片按模糊滑杆取档
+            for (Bitmap old : levels) old.recycle();
+            levels = new java.util.ArrayList<>();
+            levels.add(base);
             Bitmap src = base;
             while (src.getWidth() > 60) {
                 Bitmap dst = Bitmap.createBitmap(
@@ -2137,11 +2191,11 @@ public class SettingsActivity extends Activity {
                 Canvas cc = new Canvas(dst);
                 cc.drawBitmap(src, null,
                         new Rect(0, 0, dst.getWidth(), dst.getHeight()), filterPaint);
-                if (src != base) src.recycle();
+                levels.add(dst);
                 src = dst;
             }
-            if (blurred != null && blurred != src) blurred.recycle();
-            blurred = src;
+            // 自身展示用中档；背景重捕链引用旧位图的由 GC 兜底（尺寸变化时链会重建）
+            blurred = levels.get(Math.min(2, levels.size() - 1));
             invalidate();
         }
 
