@@ -34,6 +34,12 @@ public final class Prefs {
     public static final String KEY_AUTO_UPDATE = "set_auto_update";
     /** 页面左右滑动开关（v15.1.2 新增；默认开） */
     public static final String KEY_PAGE_SWIPE = "set_page_swipe";
+    /** 应用背景来源：0 极光 / 1 系统壁纸 / 2 自定义图片（v15.1.3 新增；默认极光） */
+    public static final String KEY_WALLPAPER_MODE = "set_wallpaper_mode";
+    /** 自定义背景图片的私有绝对路径（v15.1.3 新增） */
+    public static final String KEY_WALLPAPER_PATH = "wallpaper_path";
+    /** 壁纸压暗强度 0..70（v15.1.3 新增；默认 30） */
+    public static final String KEY_WALLPAPER_DIM = "wallpaper_dim";
     public static final String KEY_DESKTOP_ICON = "set_desktop_icon";
 
     public static final String KEY_GLASS_OPACITY = "glass_opacity";
@@ -84,6 +90,14 @@ public final class Prefs {
     public static boolean appBadgeEnabled(Context c) { return sp(c).getBoolean(KEY_APP_BADGE, true); }
     public static boolean autoUpdateEnabled(Context c) { return sp(c).getBoolean(KEY_AUTO_UPDATE, true); }
     public static boolean pageSwipeEnabled(Context c) { return sp(c).getBoolean(KEY_PAGE_SWIPE, true); }
+
+    /** 背景来源：0 极光 / 1 系统壁纸 / 2 自定义图片 */
+    public static int wallpaperMode(Context c) { return (int) clamp(sp(c).getInt(KEY_WALLPAPER_MODE, 0), 0, 2); }
+    public static void setWallpaperMode(Context c, int v) { sp(c).edit().putInt(KEY_WALLPAPER_MODE, v).apply(); }
+    public static String wallpaperPath(Context c) { return sp(c).getString(KEY_WALLPAPER_PATH, null); }
+    public static void setWallpaperPath(Context c, String v) { sp(c).edit().putString(KEY_WALLPAPER_PATH, v).apply(); }
+    /** 壁纸压暗强度 0..0.7（默认 0.30） */
+    public static float wallpaperDim(Context c) { return clamp(sp(c).getInt(KEY_WALLPAPER_DIM, 30) / 100f, 0f, .7f); }
     public static void setDesktopIconPref(Context c, boolean v) {
         sp(c).edit().putBoolean(KEY_DESKTOP_ICON, v).apply();
     }

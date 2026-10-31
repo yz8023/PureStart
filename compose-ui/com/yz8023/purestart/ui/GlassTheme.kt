@@ -2,17 +2,15 @@ package com.yz8023.purestart.ui
 
 import android.content.SharedPreferences
 import android.os.Build
-import androidx.compose.foundation.border
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -23,8 +21,14 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -38,12 +42,22 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
 import com.yz8023.purestart.Prefs
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
-/** Rendering parameters read from the original preference names and defaults. */
+/**
+ * 渲染参数（沿用原有偏好键与默认值）。
+ *
+ * `wallpaper` 对应「应用背景」：0 = 极光（内置，参考 yz8023/UI 的 AuroraBackground），
+ * 1 = 系统壁纸，2 = 自定义图片（相册选择，复制到应用私有目录）。
+ */
 @Immutable
 data class GlassAppearance(val dark: Boolean, val aurora: Boolean, val enabled: Boolean,
     val opacity: Float, val tint: Float, val blur: Int, val height: Int, val amount: Int,
-    val border: Float, val vibrant: Boolean, val chromatic: Boolean)
+    val border: Float, val vibrant: Boolean, val chromatic: Boolean,
+    val wallpaper: Int = 0, val wallpaperPath: String? = null,
+    val wallpaperDim: Float = .30f)
 
 private val LocalAppearance = staticCompositionLocalOf {
     GlassAppearance(false, false, true, .55f, .08f, 0, 15, 20, .20f, true, true)
@@ -66,7 +80,8 @@ fun PureStartTheme(content: @Composable () -> Unit) {
         GlassAppearance(mode == 2 || mode == 3 || (mode == 0 && systemDark), mode == 3,
             Prefs.liquidBlurEnabled(context), Prefs.opacity(context), Prefs.tintAlpha(context),
             Prefs.blurDp(context), Prefs.prismHeightDp(context), Prefs.prismAmountDp(context),
-            Prefs.borderAlpha(context), Prefs.vibrancy(context), Prefs.chromatic(context))
+            Prefs.borderAlpha(context), Prefs.vibrancy(context), Prefs.chromatic(context),
+            Prefs.wallpaperMode(context), Prefs.wallpaperPath(context), Prefs.wallpaperDim(context))
     }
     val colors = if (appearance.dark) darkColorScheme(
         primary = if (appearance.aurora) Color(0xFF38BDF8) else Color(0xFF9ABEFF),
@@ -78,16 +93,94 @@ fun PureStartTheme(content: @Composable () -> Unit) {
     }
 }
 
+/**
+ * 背景层（玻璃采样对象）。
+ *
+ * v15.1.3 起三种来源统一在这里绘制：
+ *  - 极光：四团径向光斑按各自轨道缓慢漂移，取自 yz8023/UI `AuroraBackground`
+ *    的配色与轨道参数（AuroraLight / AuroraDark），比原来的线性渐变更耐看，
+ *    也为玻璃提供有层次可折射的底图；
+ *  - 系统壁纸：读取 WallpaperManager 的桌面壁纸；
+ *  - 自定义图片：相册选图后复制到私有目录。
+ * 后两种由 [WallpaperSurface] 在背景层里画，玻璃照样能折射到它。
+ */
 @Composable
 fun glassBackground(): Brush {
     val appearance = LocalAppearance.current
+    val base = MaterialTheme.colorScheme.background
+    val palette = auroraPalette(appearance.dark, appearance.aurora)
     val phase by rememberInfiniteTransition(label = "backgroundLight").animateFloat(
-        0f, 1f, infiniteRepeatable(tween(14000, easing = LinearEasing), RepeatMode.Reverse),
+        0f, (2 * PI).toFloat(), infiniteRepeatable(tween(28000, easing = LinearEasing), RepeatMode.Restart),
         label = "backgroundLightPhase")
-    return if (appearance.dark) Brush.linearGradient(listOf(Color(0xFF111E35),
-        lerp(Color(0xFF281C39), Color(0xFF233456), phase), Color(0xFF103632)))
-    else Brush.linearGradient(listOf(Color(0xFFDDEAFF),
-        lerp(Color(0xFFF7EAF3), Color(0xFFE5ECFF), phase), Color(0xFFD3EEEB)))
+    return Brush.verticalGradient(listOf(base, base, palette[1].copy(alpha = .35f)))
+}
+
+/** 极光配色：浅色冰蓝 / 深色极光，取自参考项目 theme/Color.kt。 */
+private fun auroraPalette(dark: Boolean, aurora: Boolean): List<Color> = when {
+    dark && aurora -> listOf(Color(0xFF0A0F16), Color(0xFF102438), Color(0xFF1A1536), Color(0xFF0B2822))
+    dark -> listOf(Color(0xFF0A0F16), Color(0xFF1B2130), Color(0xFF241B33), Color(0xFF12241F))
+    else -> listOf(Color(0xFFFFFFFF), Color(0xFFB7C8FF), Color(0xFFE6ECFF), Color(0xFF8BA3FF))
+}
+
+/** 四团光斑：轨道/速度与参考项目一致，避免同时脉动。 */
+@Composable
+private fun BoxScope.AuroraBlobs() {
+    val appearance = LocalAppearance.current
+    val palette = auroraPalette(appearance.dark, appearance.aurora)
+    val phase by rememberInfiniteTransition(label = "aurora").animateFloat(
+        0f, (2 * PI).toFloat(), infiniteRepeatable(tween(28000, easing = LinearEasing)),
+        label = "auroraPhase")
+    Canvas(Modifier.fillMaxSize()) {
+        val blobs = listOf(
+            floatArrayOf(.20f, .16f, .62f, .10f, 1.0f, 0f),
+            floatArrayOf(.86f, .28f, .52f, .12f, -1.35f, 0f),
+            floatArrayOf(.34f, .82f, .66f, .09f, .78f, 0f),
+            floatArrayOf(.92f, .88f, .48f, .08f, -.62f, 0f))
+        blobs.forEachIndexed { index, b ->
+            val color = palette[(index % 3) + 1]
+            val x = (b[0] + cos(phase * b[4]) * b[3]) * size.width
+            val y = (b[1] + sin(phase * b[4] * .8f) * b[3]) * size.height
+            val radius = b[2] * size.minDimension
+            drawCircle(brush = Brush.radialGradient(
+                colors = listOf(color.copy(alpha = .55f), color.copy(alpha = .22f), Color.Transparent),
+                center = Offset(x, y), radius = radius),
+                radius = radius, center = Offset(x, y))
+        }
+    }
+}
+
+/**
+ * 背景图片层：系统壁纸或自定义图片，带按主题的压暗/提亮遮罩。
+ * 只在背景层（被玻璃采样的那一层）里调用。
+ */
+@Composable
+private fun BoxScope.WallpaperSurface() {
+    val appearance = LocalAppearance.current
+    val painter = rememberWallpaperPainter(appearance.wallpaper, appearance.wallpaperPath)
+    val veil = if (appearance.dark) Color.Black else Color.White
+    val alpha = appearance.wallpaperDim.coerceIn(0f, .7f) * (if (appearance.dark) 1f else .55f)
+    Box(Modifier.matchParentSize()) {
+        if (painter != null) {
+            androidx.compose.foundation.Image(
+                painter = painter,
+                contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.matchParentSize().blur(1.dp, BlurredEdgeTreatment.Unbounded))
+        }
+        Box(Modifier.matchParentSize().background(veil.copy(alpha = alpha)))
+    }
+}
+
+/** 载入壁纸（IO 线程解码，失败静默回落到极光背景）。 */
+@Composable
+private fun rememberWallpaperPainter(mode: Int, path: String?): androidx.compose.ui.graphics.painter.Painter? {
+    val context = LocalContext.current
+    val state = produceState<androidx.compose.ui.graphics.painter.Painter?>(null, mode, path) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            WallpaperRepository.loadPainter(context, mode, path)
+        }
+    }
+    return state.value
 }
 
 @Composable
@@ -99,12 +192,15 @@ fun Modifier.glassPanel(backdrop: Backdrop, radius: Int = 22, navigation: Boolea
     // Keep text legible with the reference project's translucent fallback rather
     // than showing an almost invisible, falsely advertised refraction effect.
     if (!appearance.enabled || Build.VERSION.SDK_INT < 31) {
-        val fallback = if (appearance.enabled)
-            (0.26f + appearance.tint + appearance.opacity * .18f).coerceIn(0f, .72f)
-            else .88f
+        // v15.1.3 修复「普通模式每个卡片都有白底」：原实现在关闭磨砂时用
+        // surface.copy(alpha=.88) 的白底铺满卡片。现在改为极淡的同色雾面
+        // （白/黑 6%~14%），卡片能透出背景，仅保留 1dp 描边保证边界可读。
+        val veil = if (appearance.dark) Color.Black else Color.White
+        val fallback = if (appearance.enabled) .10f + appearance.tint * .5f else .08f
         return this.shadow(2.dp, shape, clip = false).clip(shape)
-            .background(surface.copy(alpha = fallback))
-            .border(1.dp, Color.White.copy(alpha = appearance.border.coerceIn(0f, .45f)), shape)
+            .background(veil.copy(alpha = fallback.coerceIn(.05f, .22f)))
+            .border(1.dp, if (appearance.dark) Color.White.copy(alpha = .10f)
+                            else Color.Black.copy(alpha = .06f), shape)
     }
     // The reference capsule uses its own 4dp blur, independently of the
     // user-controlled page-card blur; do not change the persisted preference.
@@ -122,22 +218,54 @@ fun Modifier.glassPanel(backdrop: Backdrop, radius: Int = 22, navigation: Boolea
         onDrawSurface = { drawRect(surface.copy(alpha = alpha)) })
 }
 
-/** Same-window background layer for screens built without a dedicated backdrop. */
+/**
+ * 根背景层：极光或壁纸**只在这里画一次**，再作为 backdrop 交给所有页面与底栏采样。
+ *
+ * 这样做的原因：
+ *  - 四个页面各自铺一层背景会重复解码壁纸、重复跑极光动画（内存与掉帧）；
+ *  - 底栏玻璃需要同时折射「页面内容」和「背景」，共享同一份 backdrop 才能做到。
+ */
 @Composable
-fun GlassScene(content: @Composable BoxScope.() -> Unit) {
+fun GlassSceneRoot(content: @Composable BoxScope.() -> Unit) {
     val backdrop = rememberLayerBackdrop(graphicsLayer = rememberGraphicsLayer()) { drawContent() }
+    val appearance = LocalAppearance.current
     val background = glassBackground()
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.matchParentSize().layerBackdrop(backdrop).background(background))
+        Box(Modifier.matchParentSize().layerBackdrop(backdrop)) {
+            if (appearance.wallpaper == WallpaperRepository.MODE_AURORA) {
+                Box(Modifier.matchParentSize().background(background)) { AuroraBlobs() }
+            } else {
+                Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.background)) {
+                    WallpaperSurface()
+                }
+            }
+        }
         CompositionLocalProvider(LocalSceneBackdrop provides backdrop) { content() }
     }
+}
+
+/** 当前生效的背景采样层（底栏需要与页面内容合并采样时使用）。 */
+@Composable
+fun currentSceneBackdrop(): Backdrop? = LocalSceneBackdrop.current
+
+/**
+ * 页面级背景入口。
+ *
+ * 外层已经有 [GlassSceneRoot] 时直接复用它的背景（页面本身透明，背景只画一次）；
+ * 单独使用时（例如以后要独立弹出的页面）自己搭一套，保证玻璃仍然有东西可折射。
+ */
+@Composable
+fun GlassScene(content: @Composable BoxScope.() -> Unit) {
+    // 已经有了外层背景层：包一层铺满的 Box 提供 BoxScope，页面自身保持透明。
+    if (LocalSceneBackdrop.current != null) Box(Modifier.fillMaxSize(), content = content)
+    else GlassSceneRoot(content)
 }
 
 @Composable
 fun Modifier.sceneGlassPanel(radius: Int = 22): Modifier {
     val backdrop = LocalSceneBackdrop.current
     return if (backdrop != null) glassPanel(backdrop, radius)
-           else background(MaterialTheme.colorScheme.surface, RoundedCornerShape(radius.dp))
+           else background(Color.Transparent, RoundedCornerShape(radius.dp))
 }
 
 /** Visible transparent glass container: unlike the old grey slab, its fill is
@@ -165,10 +293,9 @@ fun Modifier.dockContainer(backdrop: Backdrop): Modifier {
 /**
  * 移动的底栏玻璃胶囊（不带底板，只有这一颗胶囊）。
  *
- * `press` 0..1 为按压进度：折射、高光、内阴影与投影都随按压增强，
- * 与模板 LiquidBottomTabs 的活动胶囊一致（模板用 pressProgress 驱动
- * lens / Highlight / InnerShadow）。放大由调用方在 graphicsLayer 上做，
- * 因此这里不再裁剪，胶囊可以溢出底栏容器。
+ * 注意：这颗胶囊必须在 Dock 图标**之后**绘制（v15.1.3 起由 PureStartShell
+ * 放在图标层之上）——玻璃需要一个可见的填充/折射，画在图标上方才有
+ * 「图标泡在液体玻璃里」的观感；画在图标下方又会把图标糊成一团。
  */
 @Composable
 fun Modifier.dockLens(backdrop: Backdrop, press: Float): Modifier {
@@ -177,12 +304,12 @@ fun Modifier.dockLens(backdrop: Backdrop, press: Float): Modifier {
     val surface = MaterialTheme.colorScheme.surface
     val p = press.coerceIn(0f, 1f)
     if (!appearance.enabled || Build.VERSION.SDK_INT < 31) {
-        // 旧系统没有 RenderEffect：用更明显的半透明底 + 白色描边表达「浮起」，
-        // 并按按压进度加深投影，保持与玻璃路径一致的视觉反馈。
-        val lift = 4.dp + 6.dp * p
-        return this.shadow(lift, shape, clip = false).clip(shape)
-            .background(surface.copy(alpha = (if (appearance.dark) .52f else .68f) + .12f * p))
-            .border(1.dp, Color.White.copy(alpha = .35f + .25f * p), shape)
+        // 旧系统没有 RenderEffect：用低透明度的同色雾面 + 描边，
+        // 既能看清选中态，又不会把图标盖住（原实现 .68 白底会盖住图标）。
+        val veil = if (appearance.dark) Color.White else surface
+        return this.shadow(4.dp + 6.dp * p, shape, clip = false).clip(shape)
+            .background(veil.copy(alpha = (if (appearance.dark) .10f else .22f) + .10f * p))
+            .border(1.dp, Color.White.copy(alpha = .30f + .30f * p), shape)
     }
     return drawBackdrop(backdrop = backdrop, shape = { shape }, effects = {
         if (appearance.vibrant) vibrancy()
@@ -195,6 +322,7 @@ fun Modifier.dockLens(backdrop: Backdrop, press: Float): Modifier {
         shadow = { Shadow(radius = 10.dp + 6.dp * p, color = Color.Black,
             alpha = (if (appearance.dark) .22f else .12f) + .10f * p) },
         onDrawSurface = {
-            drawRect(surface.copy(alpha = (if (appearance.dark) .14f else .20f) + .10f * p))
+            // 玻璃里的染色很淡（原 .20 白底 + 4dp 模糊会把图标糊掉）。
+            drawRect(surface.copy(alpha = (if (appearance.dark) .10f else .12f) + .06f * p))
         })
 }

@@ -16,6 +16,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -28,6 +36,70 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
+/**
+ * 应用背景选择（v15.1.3）：极光（内置，参考 yz8023/UI）／系统桌面壁纸／相册自定义图片。
+ *
+ * 选图走系统照片选择器（ActivityResultContracts.PickVisualMedia），不需要任何存储权限；
+ * 图片会被复制到应用私有目录，原图删除或权限撤销都不会让背景变空白。
+ */
+@Composable
+private fun BackgroundCard(revision: Int) {
+    val context = LocalContext.current
+    val prefs = remember(context) { Prefs.sp(context) }
+    val mode = prefs.getInt(Prefs.KEY_WALLPAPER_MODE, WallpaperRepository.MODE_AURORA)
+    val scope = rememberCoroutineScope()
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) scope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bitmap = context.contentResolver.openInputStream(uri)?.use {
+                        android.graphics.BitmapFactory.decodeStream(it)
+                    } ?: error("无法读取所选图片")
+                    WallpaperRepository.saveCustom(context, bitmap)
+                }.getOrNull()
+            }
+            if (saved != null) {
+                prefs.edit().putString(Prefs.KEY_WALLPAPER_PATH, saved)
+                    .putInt(Prefs.KEY_WALLPAPER_MODE, WallpaperRepository.MODE_CUSTOM).apply()
+                Toast.makeText(context, "已设为应用背景", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "图片读取失败，请换一张", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    val names = listOf("极光", "系统壁纸", "自定义图片")
+    Column(Modifier.fillMaxWidth().sceneGlassPanel().padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("应用背景", style = MaterialTheme.typography.bodyLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            names.forEachIndexed { index, name ->
+                FilterChip(selected = mode == index, onClick = {
+                    if (index == WallpaperRepository.MODE_CUSTOM) {
+                        picker.launch(PickVisualMediaRequest(
+                            ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    } else {
+                        prefs.edit().putInt(Prefs.KEY_WALLPAPER_MODE, index).apply()
+                    }
+                }, label = { Text(name) })
+            }
+        }
+        Text(when (mode) {
+            WallpaperRepository.MODE_SYSTEM -> "使用系统桌面壁纸（只读取，不修改系统设置，无需权限）"
+            WallpaperRepository.MODE_CUSTOM -> "已使用相册图片，点「自定义图片」可重新选择"
+            else -> "内置极光背景，取自 yz8023/UI 的 AuroraBackground"
+        }, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (mode != WallpaperRepository.MODE_AURORA) {
+            val dim = remember(revision, mode) { prefs.getInt(Prefs.KEY_WALLPAPER_DIM, 30) }
+            Text("背景压暗：$dim%", style = MaterialTheme.typography.bodySmall)
+            Slider(value = dim.toFloat(), onValueChange = {
+                prefs.edit().putInt(Prefs.KEY_WALLPAPER_DIM, it.roundToInt()).apply()
+            }, valueRange = 0f..70f)
+        }
+    }
+}
+
 /** Compose settings page. */
 @Composable
 fun SettingsScreen(repository: SettingsRepository, bottomInset: Dp = 96.dp) {
@@ -35,7 +107,8 @@ fun SettingsScreen(repository: SettingsRepository, bottomInset: Dp = 96.dp) {
     val prefs = remember(context) { Prefs.sp(context) }
     var revision by remember { mutableIntStateOf(0) }
     var dialog by remember { mutableStateOf<String?>(null) }
-    var expanded by remember { mutableStateOf(true) }
+    // v15.1.3：玻璃细则默认折叠，避免设置页一进来就被十条滑杆塞满。
+    var expanded by rememberSaveable { mutableStateOf(false) }
     val iconController = remember(context) { LauncherIconController(context) }
     fun aliasEnabled(): Boolean = try { iconController.isShown() } catch (_: Exception) { true }
     fun setAlias(show: Boolean) {
@@ -63,6 +136,7 @@ fun SettingsScreen(repository: SettingsRepository, bottomInset: Dp = 96.dp) {
         val theme = remember(revision) { repository.themeMode() }
         Text("外观：${modes.getOrElse(theme) { modes[0] }}", Modifier.fillMaxWidth().sceneGlassPanel().clickable { dialog = "theme" }.padding(12.dp))
         PreferenceSwitch("磨砂模糊", Prefs.KEY_LIQUID_BLUR, true, revision)
+        BackgroundCard(revision)
         val chevronRotation by animateFloatAsState(if (expanded) 180f else 0f, label = "glassDetailsChevron")
         Row(Modifier.fillMaxWidth().sceneGlassPanel().clickable(role = Role.Button) { expanded = !expanded }
             .padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {

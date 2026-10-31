@@ -88,30 +88,33 @@ fun PureStartShell(repository: SettingsRepository) {
     val dockPressing = dockDragPosition != null || pressedIndex >= 0
     val pressProgress by animateFloatAsState(if (dockPressing) 1f else 0f,
         spring(dampingRatio = .65f, stiffness = 350f), label = "dockPress")
+    // 页面内容自己再录一层：底栏玻璃要折射「背景 + 页面内容」两者。
     val pageBackdrop = rememberLayerBackdrop(graphicsLayer = rememberGraphicsLayer()) { drawContent() }
+    val sceneBackdrop = currentSceneBackdrop()
     val labelsBackdrop = rememberLayerBackdrop(graphicsLayer = rememberGraphicsLayer()) { drawContent() }
-    val lensBackdrop = rememberCombinedBackdrop(pageBackdrop, labelsBackdrop)
+    val dockBackdrop = if (sceneBackdrop != null) rememberCombinedBackdrop(sceneBackdrop, pageBackdrop)
+                       else pageBackdrop
+    val lensBackdrop = rememberCombinedBackdrop(dockBackdrop, labelsBackdrop)
 
     // 页面内容底部留白 = 底栏高度 + 上下间距 + 导航栏，避免内容被胶囊压住。
     val contentBottom = 70.dp + 12.dp * 2 + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    Box(Modifier.fillMaxSize()) {
-        // ① 页面层：可横向滑动，同时作为玻璃采样的背景。
-        Box(Modifier.matchParentSize().layerBackdrop(pageBackdrop)) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize(),
-                beyondViewportPageCount = 0,
-                pageSpacing = 0.dp,
-                key = { it }
-            ) { page ->
-                // 一次只组合当前页：翻页时不会重复加载应用列表。
-                when (page) {
-                    0 -> HomeScreen(repository, bottomInset = contentBottom)
-                    1 -> AppsScreen(repository, bottomInset = contentBottom)
-                    2 -> ExtensionScreen(bottomInset = contentBottom)
-                    else -> SettingsScreen(repository, bottomInset = contentBottom)
-                }
+    GlassSceneRoot {
+        // ① 页面层：纯内容，背景已由 GlassSceneRoot 画好，所以页面本身保持透明可滑动。
+        HorizontalPager(
+            state = pagerState,
+            // 录进 pageBackdrop：底栏玻璃采样「背景 + 当前页内容」。
+            modifier = Modifier.fillMaxSize().layerBackdrop(pageBackdrop),
+            beyondViewportPageCount = 0,
+            pageSpacing = 0.dp,
+            key = { it }
+        ) { page ->
+            // 一次只组合当前页：翻页时不会重复加载应用列表。
+            when (page) {
+                0 -> HomeScreen(repository, bottomInset = contentBottom)
+                1 -> AppsScreen(repository, bottomInset = contentBottom)
+                2 -> ExtensionScreen(bottomInset = contentBottom)
+                else -> SettingsScreen(repository, bottomInset = contentBottom)
             }
         }
 
@@ -129,7 +132,7 @@ fun PureStartShell(repository: SettingsRepository) {
                 label = "tabIndicator")
 
             // ① 玻璃底板：只负责磨砂/折射背景 + 承载标签与点击区。
-            Box(Modifier.fillMaxSize().dockContainer(pageBackdrop)
+            Box(Modifier.fillMaxSize().dockContainer(dockBackdrop)
                 .pointerInput(rtl) {
                     // 底栏拖拽：越过触摸阈值才算拖动（纯点击仍交给 Tab 的 clickable），
                     // 拖动时胶囊跟手，松手按位移/速度吸附到目标页。
@@ -177,7 +180,8 @@ fun PureStartShell(repository: SettingsRepository) {
                 Row(Modifier.fillMaxSize().alpha(0f).layerBackdrop(labelsBackdrop).clearAndSetSemantics { }) {
                     DockItems(pagerState.currentPage, badge, interactions, false) { }
                 }
-                // ③ 点击区：铺满底栏，点击直接翻到对应页。
+                // ③ 点击区（图标在上）：画完图标后，胶囊再以浮层身份盖上来，
+                // 这样选中态是「图标泡在液体玻璃里」，而不是胶囊压住图标。
                 Row(Modifier.fillMaxSize()) {
                     DockItems(pagerState.currentPage, badge, interactions, true) { index ->
                         scope.launch { pagerState.animateScrollToPage(index, animationSpec = settleSpec) }
@@ -185,7 +189,8 @@ fun PureStartShell(repository: SettingsRepository) {
                 }
             }
 
-            // ④ 玻璃胶囊：与底板同级、后绘制，按压放大（模板 78/56）时可越出底栏。
+            // ④ 玻璃胶囊：必须在图标层之后绘制（否则 .20 白底 + 4dp 模糊会把图标糊住），
+            // 且与底板同级、不受底板裁剪，按压放大（模板 78/56）时可越出底栏。
             Box(Modifier.offset(x = offset).padding(5.dp).width(tabWidth - 10.dp).fillMaxHeight()
                 .graphicsLayer {
                     val scale = 1f + .39f * pressProgress
@@ -193,6 +198,7 @@ fun PureStartShell(repository: SettingsRepository) {
                     scaleY = scale
                 }
                 .dockLens(lensBackdrop, pressProgress))
+
         }
     }
 }

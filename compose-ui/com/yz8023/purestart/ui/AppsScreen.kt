@@ -3,7 +3,6 @@ package com.yz8023.purestart.ui
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,17 +14,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.highlight.Highlight
 import com.yz8023.purestart.Targets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -77,9 +68,7 @@ fun AppsScreen(repository: SettingsRepository, bottomInset: Dp = 96.dp) {
         repository.setObserver { revision++ }
         onDispose { repository.setObserver(null) }
     }
-    val backdrop = rememberLayerBackdrop(graphicsLayer = rememberGraphicsLayer()) { drawContent() }
-    Box(Modifier.fillMaxSize().background(Color(0xFFF5F8FC))) {
-        Box(Modifier.matchParentSize().layerBackdrop(backdrop).background(glassBackground()))
+    Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 20.dp)) {
             Spacer(Modifier.height(18.dp))
             Text("适配应用", style = MaterialTheme.typography.headlineMedium)
@@ -100,7 +89,7 @@ fun AppsScreen(repository: SettingsRepository, bottomInset: Dp = 96.dp) {
                 contentPadding = PaddingValues(bottom = bottomInset)) {
                 items(filtered, key = { it.pkg }) { item ->
                     val enabled = remember(repository, item.pkg, revision) { repository.isHookEnabled(item.pkg) }
-                    Row(Modifier.fillMaxWidth().glassPanel(backdrop).clickable { selectedPackage = item.pkg }.padding(18.dp),
+                    Row(Modifier.fillMaxWidth().sceneGlassPanel().clickable { selectedPackage = item.pkg }.padding(18.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(item.label, style = MaterialTheme.typography.titleMedium)
