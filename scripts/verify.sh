@@ -10,6 +10,8 @@ run python3 scripts/check.py
 run python3 tests/check_ui_contract.py
 run python3 tests/check_glass_surfaces.py
 run python3 tests/check_ui_state.py
+run python3 tests/check_comments_balanced.py
+run python3 tests/check_release_config.py
 run python3 tests/check_backend_unchanged.py
 run python3 tests/test_settings_repository.py
 run python3 tests/test_backup_repository.py

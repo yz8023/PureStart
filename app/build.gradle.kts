@@ -12,8 +12,11 @@ plugins {
  *
  * 改动要点：
  *  1. **源码不再手动映射目录**。Java（Hook 后端）、Kotlin（UI + repository）、res、
- *     AndroidManifest 全部落在 AGP 默认布局 `app/src/main/**` 下，`sourceSets` 里
+ *     AndroidManifest 全部落在 AGP 默认布局 app/src/main 下，`sourceSets` 里
  *     只剩「追加生成代码」这一项。
+ *     （注意：注释里不要写出「斜杠紧跟星号」的字符序列——Kotlin 的块注释可嵌套，
+ *      出现一次就会把后面的整段配置吞进注释，构建时只报「没有声明 compileSdk」，
+ *      从错误信息完全看不出根因。守门见 tests/check_comments_balanced.py。）
  *  2. **不再生成清单副本**。清单里已经去掉了 `package=`（改为 namespace）与 `<uses-sdk>`
  *     （改为 defaultConfig），所以 `app/src/main/AndroidManifest.xml` 可以直接作为 AGP
  *     的输入。原来「配置阶段写一份去 package 的清单」的逻辑整段删除。
@@ -80,6 +83,10 @@ android {
         applicationId = "com.yz8023.purestart"
         minSdk = 26
         targetSdk = 34
+        // v15.2 第三阶段：本模块只有默认（中文）资源，限制语言能让 AGP 丢掉
+        // AndroidX / Material3 自带的几十种语言资源；不匹配的设备仍回落到默认资源，
+        // 与改动前的行为一致。
+        resourceConfigurations += listOf("zh", "en")
     }
     // 默认布局已经包含 java / kotlin / res / AndroidManifest.xml，这里只追加生成代码。
     sourceSets.getByName("main") {
@@ -111,7 +118,17 @@ android {
             signingConfig = configuredSigning
         }
     }
-    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // 构建期元数据，运行时完全用不到：全量剔除（每条几 KB，APK 里纯浪费）
+        resources.excludes += "/META-INF/*.kotlin_module"
+        resources.excludes += "/META-INF/*.version"
+        resources.excludes += "/META-INF/*.kotlin_builtins"
+        resources.excludes += "/kotlin/**"
+        resources.excludes += "/*.txt"
+        // kotlinx-coroutines 调试探针，release 不需要
+        resources.excludes += "/DebugProbesKt.bin"
+    }
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
