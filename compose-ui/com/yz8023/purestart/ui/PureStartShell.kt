@@ -128,43 +128,51 @@ fun PureStartShell(repository: SettingsRepository) {
             val targetPosition = dockDragPosition ?: livePosition
             val offset by animateDpAsState(tabWidth * targetPosition,
                 if (dockDragPosition != null) snap()
-                else spring(dampingRatio = (0.4f + damping * 0.8f).coerceIn(.25f, 1.25f), stiffness = 360f),
+                // 阻尼滑杆越小越「弹」：v15.1.5 把下限从 .25 抬到 .45，并限制过冲，
+                // 松手回位不再甩过头（原来会明显冲过头再弹回来）。
+                else spring(dampingRatio = (0.55f + damping * 0.45f).coerceIn(.45f, 1f), stiffness = 420f),
                 label = "tabIndicator")
 
             // ① 玻璃底板：只负责磨砂/折射背景 + 承载标签与点击区。
             Box(Modifier.fillMaxSize().dockContainer(dockBackdrop)
                 .pointerInput(rtl) {
-                    // 底栏拖拽：越过触摸阈值才算拖动（纯点击仍交给 Tab 的 clickable），
-                    // 拖动时胶囊跟手，松手按位移/速度吸附到目标页。
+                    // 底栏拖拽（v15.1.5 重写）。
+                    //
+                    // 旧版把「手指从按下点的位移」当成胶囊位移（basePosition + travelled），
+                    // 于是按下位置在槽位中心与边缘之间时，胶囊会整体偏半槽，
+                    // 松手就跳到相邻的错误页。前几版更糟：按下瞬间就把胶囊瞬移到手指位置。
+                    //
+                    // 新版语义与系统 Pager 一致：
+                    //   胶囊目标位 = 当前页 - 手指相对按下点的位移 / 单槽宽度
+                    // 手指左移（负 dx）→ 槽位 +1；右移 → 槽位 -1；按下不动就不动。
                     val width = size.width.toFloat()
+                    val tabWidth = width / 4f
                     val slop = viewConfiguration.touchSlop
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val velocity = VelocityTracker()
                         velocity.addPosition(down.uptimeMillis, down.position)
-                        // 按槽位记录按下点：拖动从「按下的那个槽」开始算，
-                        // 手指落在胶囊外侧时胶囊也不会瞬移到手指下。
-                        val basePosition = touchToPosition(down.position.x, width, rtl)
-                        var position = basePosition
-                        var dragging = false
+                        val startPage = pagerState.currentPage.toFloat()
                         var travelled = 0f
+                        var dragging = false
+                        var position = startPage
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!change.pressed) break
                             velocity.addPosition(change.uptimeMillis, change.position)
-                            val dx = change.positionChange().x
-                            travelled += dx
+                            travelled += change.positionChange().x
                             if (!dragging && kotlin.math.abs(travelled) > slop) dragging = true
                             if (dragging) {
-                                // 从累计位移重新计算（不累加，避免阈值前的位移丢失）。
-                                val slots = slotsPerSecond(travelled, width, rtl)
-                                position = (basePosition + slots).coerceIn(0f, 3f)
+                                // 只移动「该移动的距离」：单槽宽度对应一个槽位，首尾不越界。
+                                val delta = if (rtl) travelled / tabWidth else -travelled / tabWidth
+                                position = (startPage + delta).coerceIn(0f, 3f)
                                 dockDragPosition = position
                                 change.consume()
                             }
                         }
                         if (dragging) {
+                            // 用「胶囊当前位置」落点：位移超过半槽或甩动够快才翻页。
                             val speed = slotsPerSecond(velocity.calculateVelocity().x, width, rtl)
                             val target = settleDockPage(position, speed)
                             dockDragPosition = null

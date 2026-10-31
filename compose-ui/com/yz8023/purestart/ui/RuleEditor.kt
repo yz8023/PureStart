@@ -27,9 +27,12 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun RuleEditor(repository: SettingsRepository, packageName: String, appName: String, onBack: () -> Unit) {
     var revision by remember { mutableIntStateOf(0) }
+    // v15.1.5：用 add/removeObserver（原来四个页面抢同一个 observer 槽，
+    // 设置页会收不到变化，开关看起来「点了没反应/卡死」）。
     DisposableEffect(repository) {
-        repository.setObserver { revision++ }
-        onDispose { repository.setObserver(null) }
+        val observer = SettingsRepository.Observer { revision++ }
+        repository.addObserver(observer)
+        onDispose { repository.removeObserver(observer) }
     }
     // 背景沿用所在页面的 GlassScene（极光/壁纸），不再自铺 #F5F8FC 白底。
     Box(Modifier.fillMaxSize()) {

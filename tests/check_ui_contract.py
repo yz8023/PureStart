@@ -43,7 +43,7 @@ assert 'R.drawable.ic_chevron_down' in settings and 'GlassActionRow("获取更�
 assert 'var expanded by rememberSaveable { mutableStateOf(false) }' in settings
 theme = (root / 'compose-ui/com/yz8023/purestart/ui/GlassTheme.kt').read_text()
 assert 'copy(alpha = .88f)' not in theme.replace(' ', ''), '普通模式卡片不应有 88% 白底'
-assert '.background(veil.copy(alpha = fallback' in theme, '普通模式应使用极淡雾面而非实心白底'
+assert '.background(sheen)' in theme, '普通模式（降级分支）应使用极淡渐变雾面而非实心白底'
 assert 'fun BoxScope.WallpaperSurface' in theme and 'private fun BoxScope.AuroraBlobs' in theme, '需要极光与壁纸两种背景实现'
 assert 'PickVisualMedia' in settings or 'PickVisualMedia' in (root / 'compose-ui/com/yz8023/purestart/ui/SettingsScreen.kt').read_text(), '应用背景需支持相册选图'
 wallpaper = (root / 'compose-ui/com/yz8023/purestart/ui/WallpaperRepository.kt').read_text()

@@ -14,6 +14,13 @@ public interface SharedPreferences {
  interface OnSharedPreferenceChangeListener { void onSharedPreferenceChanged(SharedPreferences p, String k); }
  interface Editor { Editor putBoolean(String k, boolean v); Editor putInt(String k,int v); Editor putString(String k,String v); void apply(); }
 }''',
+'android/os/Looper.java': '''package android.os;
+public final class Looper { public static Looper getMainLooper(){ return new Looper(); } }''',
+'android/os/Handler.java': '''package android.os;
+public class Handler {
+ public Handler(){} public Handler(Looper l){}
+ public boolean post(Runnable r){ r.run(); return true; }   // 桩：立即执行
+}''',
 'android/content/Context.java': '''package android.content;
 public abstract class Context {
  public static final int MODE_PRIVATE=0;
@@ -56,6 +63,21 @@ public class Test {
    check("report".equals(r.selfCheck(pkg))); check(events.size()==beforeReport+1); check(events.contains(pkg));
    r.setThemeMode(2); check(Prefs.themeMode(c)==2); check(r.appBadgeEnabled());
    int n=events.size(); r.close(); r.close(); Prefs.setHookEnabled(c,pkg,false); Prefs.writeSelfCheck(c,pkg,"later"); check(events.size()==n);
+   // v15.1.5：多观察者必须全部收到通知（原来单槽会互相顶掉 → 设置页开关「卡死」）。
+   SettingsRepository r2=new SettingsRepository(c);
+   int[] hits=new int[2];
+   SettingsRepository.Observer o1=k->hits[0]++; SettingsRepository.Observer o2=k->hits[1]++;
+   r2.addObserver(o1); r2.addObserver(o2);
+   Prefs.setHookEnabled(c,pkg,true); Prefs.setHookEnabled(c,pkg,false);
+   check(hits[0]>=2 && hits[1]>=2);
+   r2.removeObserver(o1); int before=hits[0];
+   Prefs.setHookEnabled(c,pkg,true);
+   check(hits[0]==before && hits[1]>2);
+   // 关掉磨砂模糊这类纯 UI 键也必须触发通知（否则开关点了不刷新）
+   int n2=hits[1];
+   Prefs.sp(c).edit().putBoolean(Prefs.KEY_LIQUID_BLUR,false).apply();
+   check(hits[1]==n2+1);
+   r2.close();
    System.out.println("PASS: repository contract with JVM stubs");
  }
 }'''

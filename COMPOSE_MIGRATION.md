@@ -85,3 +85,18 @@
   （默认 .10、不透明度拉满 .45）。现压到 `.03~.16`，底栏容器单独保留 `.06~.40`。
 - 新增 `tests/check_glass_surfaces.py` 防止两类问题复发，并断言背景功能不引入任何权限。
 - 仍未在真机验收（尤其透明窗口在国产 ROM 上的表现）。
+
+## v15.1.5 开关/底栏/卡片白框修正
+
+- **磨砂模糊开关点不动**：`SettingsRepository` 只有单个 observer 槽，四个页面
+  `setObserver` 互相顶掉，设置页收不到变化；且 `PreferenceSwitch` 只在首次组合时读一次
+  偏好。改为 `CopyOnWriteArrayList` 多观察者（add/removeObserver、切主线程回调）+
+  新增 `PrefFlows.kt`（callbackFlow 订阅每个键，写入即回读）。
+- **底栏跳错位置**：旧逻辑 `basePosition + travelled/tabWidth` 把手指位移加到按下槽位上，
+  按下点偏边缘时整体偏半槽。改为 Pager 语义：`startPage - travelled/tabWidth`；
+  松手弹簧下限 .25 → .45、刚度 360 → 420，减少过冲。
+- **卡片白框**：填充去掉后只剩 1dp 白色高光描边与阴影光晕。描边压到 `border × .45`
+  （≤18%）、卡片不再投阴影、填充改为白色渐变且由新参数「卡片底色」（0–40%，默认 10%）
+  唯一控制，拉到 0 即完全透明。
+- 切换背景不再无条件 recreate（只有进出系统壁纸才重建）。
+- 新增行为测试：多观察者全部收到通知、纯 UI 键切换也会通知。

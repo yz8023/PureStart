@@ -1,6 +1,7 @@
 package com.yz8023.purestart.ui
 
 import android.app.Activity
+import android.content.SharedPreferences
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -22,6 +23,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -80,14 +83,19 @@ private fun BackgroundCard(revision: Int) {
                         picker.launch(PickVisualMediaRequest(
                             ActivityResultContracts.PickVisualMedia.ImageOnly))
                     } else {
+                        val wasSystem = prefs.getInt(Prefs.KEY_WALLPAPER_MODE, 0) ==
+                            WallpaperRepository.MODE_SYSTEM
                         prefs.edit().putInt(Prefs.KEY_WALLPAPER_MODE, index).apply()
+                        // 只有「系统壁纸」的进出才需要重建：窗口透明标志只在 onCreate 生效。
+                        // 极光 <-> 自定义图片只是换背景层内容，重建反而会丢滚动位置。
+                        val needsSystemWindow = index == WallpaperRepository.MODE_SYSTEM || wasSystem
                         if (index == WallpaperRepository.MODE_SYSTEM) {
-                            // 记录这次系统壁纸到底能不能取到位图，设置页直接给出原因。
                             scope.launch {
                                 withContext(Dispatchers.IO) { WallpaperRepository.rememberProbe(context) }
-                                // 窗口透明标志只在 onCreate 生效，重建一次让壁纸透出来。
-                                (context as? Activity)?.recreate()
+                                if (needsSystemWindow) (context as? Activity)?.recreate()
                             }
+                        } else if (wasSystem) {
+                            (context as? Activity)?.recreate()
                         }
                     }
                 }, label = { Text(name) })
@@ -136,9 +144,18 @@ fun SettingsScreen(repository: SettingsRepository, bottomInset: Dp = 96.dp) {
         try { iconController.setShown(show); revision++ }
         catch (e: Exception) { Toast.makeText(context, "切换失败：$e", Toast.LENGTH_SHORT).show(); revision++ }
     }
+    // v15.1.5：用 add/removeObserver（原来四个页面抢同一个 observer 槽，
+    // 设置页会收不到变化，开关看起来「点了没反应/卡死」）。
     DisposableEffect(repository) {
-        repository.setObserver { revision++ }
-        onDispose { repository.setObserver(null) }
+        val observer = SettingsRepository.Observer { revision++ }
+        repository.addObserver(observer)
+        onDispose { repository.removeObserver(observer) }
+    }
+    // 自己再监听一遍偏好：不依赖 repository 的通知也能刷新界面。
+    DisposableEffect(prefs) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> revision++ }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     // PackageManager is the authority. Refresh when returning from a manager or
     // launcher that may have changed the alias outside this process.
@@ -177,6 +194,8 @@ fun SettingsScreen(repository: SettingsRepository, bottomInset: Dp = 96.dp) {
             PreferenceSlider("折射高度", Prefs.KEY_GLASS_REFRACT_HEIGHT, 40, 15, "dp", revision)
             PreferenceSlider("折射幅度", Prefs.KEY_GLASS_REFRACT_AMOUNT, 60, 20, "dp", revision)
             PreferenceSlider("玻璃染色", Prefs.KEY_GLASS_TINT_ALPHA, 35, 8, "%", revision)
+            // 卡片底色是唯一决定卡片「发白」程度的参数：0 = 完全透明，只留淡描边
+            PreferenceSlider("卡片底色", Prefs.KEY_CARD_TINT, 40, 10, "%", revision)
             PreferenceSlider("高光边框", Prefs.KEY_GLASS_BORDER, 45, 20, "%", revision)
             PreferenceSwitch("增强色彩层次", Prefs.KEY_GLASS_VIBRANCY, true, revision)
             PreferenceSwitch("色差折射", Prefs.KEY_GLASS_CHROMATIC, true, revision)
@@ -255,16 +274,27 @@ fun SettingsScreen(repository: SettingsRepository, bottomInset: Dp = 96.dp) {
 @Composable
 private fun PreferenceSwitch(label: String, key: String, default: Boolean, revision: Int) {
     val prefs = Prefs.sp(LocalContext.current)
-    val checked = remember(prefs, key, revision) { prefs.getBoolean(key, default) }
+    // v15.1.5：改成 collectAsState 订阅，而不是只读一次的快照；
+    // 这样开关状态始终跟偏好一致（原来点完 UI 不刷新，看起来像卡死）。
+    val checked by remember(prefs, key) {
+        prefs.booleanFlow(key, default)
+    }.collectAsState(initial = prefs.getBoolean(key, default))
     Row(Modifier.fillMaxWidth().sceneGlassPanel().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f)); Switch(checked, onCheckedChange = { prefs.edit().putBoolean(key, it).apply() })
+        Text(label, Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = { prefs.edit().putBoolean(key, it).apply() })
     }
 }
 
 @Composable
 private fun PreferenceSlider(label: String, key: String, max: Int, default: Int, unit: String, revision: Int) {
     val prefs = Prefs.sp(LocalContext.current)
-    val value = remember(prefs, key, revision) { prefs.getInt(key, default).coerceIn(0, max) }
-    Column(Modifier.fillMaxWidth().sceneGlassPanel().padding(12.dp)) { Text("$label：$value$unit"); Slider(value.toFloat(),
-        onValueChange = { prefs.edit().putInt(key, it.roundToInt()).apply() }, valueRange = 0f..max.toFloat()) }
+    val stored by remember(prefs, key) { prefs.intFlow(key, default) }
+        .collectAsState(initial = prefs.getInt(key, default))
+    val value = stored.coerceIn(0, max)
+    Column(Modifier.fillMaxWidth().sceneGlassPanel().padding(12.dp)) {
+        Text("$label：$value$unit")
+        Slider(value = value.toFloat(),
+            onValueChange = { prefs.edit().putInt(key, it.roundToInt()).apply() },
+            valueRange = 0f..max.toFloat())
+    }
 }

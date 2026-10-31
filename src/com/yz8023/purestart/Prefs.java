@@ -42,6 +42,8 @@ public final class Prefs {
     public static final String KEY_WALLPAPER_DIM = "wallpaper_dim";
     /** 系统壁纸读取失败原因（v15.1.4；空 = 正常/未尝试） */
     public static final String KEY_WALLPAPER_ERROR = "wallpaper_error";
+    /** 卡片底色 0..40（v15.1.5；默认 10，可拉到 0 得到完全透明卡片） */
+    public static final String KEY_CARD_TINT = "card_tint";
     public static final String KEY_DESKTOP_ICON = "set_desktop_icon";
 
     public static final String KEY_GLASS_OPACITY = "glass_opacity";
@@ -100,6 +102,11 @@ public final class Prefs {
     public static void setWallpaperPath(Context c, String v) { sp(c).edit().putString(KEY_WALLPAPER_PATH, v).apply(); }
     /** 壁纸压暗强度 0..0.7（默认 0.30） */
     public static float wallpaperDim(Context c) { return clamp(sp(c).getInt(KEY_WALLPAPER_DIM, 30) / 100f, 0f, .7f); }
+    /**
+     * 卡片底色 0..0.40（默认 0.10）。这是**唯一**决定卡片是否「发白」的参数：
+     * 拉到 0 时卡片只剩一圈极淡的描边，完全透出背景。
+     */
+    public static float cardTint(Context c) { return clamp(sp(c).getInt(KEY_CARD_TINT, 10) / 100f, 0f, .40f); }
     public static String wallpaperError(Context c) { return sp(c).getString(KEY_WALLPAPER_ERROR, null); }
     public static void setWallpaperError(Context c, String v) {
         sp(c).edit().putString(KEY_WALLPAPER_ERROR, v).apply();

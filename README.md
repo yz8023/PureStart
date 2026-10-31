@@ -25,7 +25,7 @@ python3 scripts/check.py                     # 漂移门禁（含密钥在位）
 python3 tests/check_ui_contract.py           # 玻璃/导航/入口静态契约（含底栏胶囊回归断言）
 python3 tests/check_glass_surfaces.py        # 卡片通透度 + 系统壁纸取法回归断言
 python3 tests/check_backend_unchanged.py     # 需要基线提交 3bb6bbd 的 Git 检出
-python3 tests/test_settings_repository.py
+python3 tests/test_settings_repository.py   # 含多观察者/UI 键通知回归用例
 python3 tests/test_backup_repository.py # 在线下载测试用 org.json
 python3 tests/check_apk.py              # 需 ANDROID_HOME，针对默认 release 产物
 ```

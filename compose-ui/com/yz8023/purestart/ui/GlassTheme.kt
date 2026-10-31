@@ -57,7 +57,7 @@ data class GlassAppearance(val dark: Boolean, val aurora: Boolean, val enabled: 
     val opacity: Float, val tint: Float, val blur: Int, val height: Int, val amount: Int,
     val border: Float, val vibrant: Boolean, val chromatic: Boolean,
     val wallpaper: Int = 0, val wallpaperPath: String? = null,
-    val wallpaperDim: Float = .30f)
+    val wallpaperDim: Float = .30f, val cardTint: Float = .10f)
 
 private val LocalAppearance = staticCompositionLocalOf {
     GlassAppearance(false, false, true, .55f, .08f, 0, 15, 20, .20f, true, true)
@@ -81,7 +81,8 @@ fun PureStartTheme(content: @Composable () -> Unit) {
             Prefs.liquidBlurEnabled(context), Prefs.opacity(context), Prefs.tintAlpha(context),
             Prefs.blurDp(context), Prefs.prismHeightDp(context), Prefs.prismAmountDp(context),
             Prefs.borderAlpha(context), Prefs.vibrancy(context), Prefs.chromatic(context),
-            Prefs.wallpaperMode(context), Prefs.wallpaperPath(context), Prefs.wallpaperDim(context))
+            Prefs.wallpaperMode(context), Prefs.wallpaperPath(context), Prefs.wallpaperDim(context),
+            Prefs.cardTint(context))
     }
     val colors = if (appearance.dark) darkColorScheme(
         primary = if (appearance.aurora) Color(0xFF38BDF8) else Color(0xFF9ABEFF),
@@ -188,43 +189,45 @@ fun Modifier.glassPanel(backdrop: Backdrop, radius: Int = 22, navigation: Boolea
     val appearance = LocalAppearance.current
     val surface = MaterialTheme.colorScheme.surface
     val shape = RoundedCornerShape(radius.dp)
-    // RenderEffect/backdrop effects are unavailable on older Android releases.
-    // Keep text legible with the reference project's translucent fallback rather
-    // than showing an almost invisible, falsely advertised refraction effect.
-    if (!appearance.enabled || Build.VERSION.SDK_INT < 31) {
-        // 「普通模式」（关闭磨砂模糊 / Android 12 以下）用极淡的同色雾面，
-        // 而不是早期版本的 surface.copy(alpha = .88f) 实心白底：
-        // 原实现每个卡片都是一块白板，关掉磨砂后尤其明显。
-        // 现在只保留 5%~22% 的雾面 + 1dp 描边，卡片能透出背景。
-        val veil = if (appearance.dark) Color.Black else Color.White
-        val fallback = if (appearance.enabled) .10f + appearance.tint * .5f else .08f
-        return this.shadow(2.dp, shape, clip = false).clip(shape)
-            .background(veil.copy(alpha = fallback.coerceIn(.05f, .22f)))
-            .border(1.dp, if (appearance.dark) Color.White.copy(alpha = .10f)
-                            else Color.Black.copy(alpha = .06f), shape)
+    // 描边统一压到很淡：v15.1.4 把卡片填充去掉后，用户看到的「白框框」
+    // 其实就是这条 1dp 白色高光描边（以及降级分支的阴影光晕）。
+    val rim = (appearance.border * .45f).coerceIn(0f, .18f)
+    // 卡片底色完全由「卡片底色」这个滑杆决定（默认 10%，可拉到 0）。
+    val tintAlpha = appearance.cardTint.coerceIn(0f, .40f)
+    val sheen = if (appearance.dark) {
+        Brush.verticalGradient(listOf(Color.White.copy(alpha = tintAlpha * .55f),
+            Color.White.copy(alpha = tintAlpha * .18f)))
+    } else {
+        Brush.verticalGradient(listOf(Color.White.copy(alpha = tintAlpha),
+            Color.White.copy(alpha = tintAlpha * .30f)))
     }
-    // The reference capsule uses its own 4dp blur, independently of the
-    // user-controlled page-card blur; do not change the persisted preference.
-    val blurDp = if (navigation) maxOf(4, appearance.blur) else appearance.blur
-    // v15.1.4：玻璃路径此前用 onDrawSurface 在**模糊之后**再盖一层 surface 实色
-    // （默认 .10、不透明度拉满时 .45）。模糊本身已经把背景抹成了接近纯色的雾面，
-    // 上面再压一层不透明白就是用户看到的「白色底方块」。
-    // 现在只保留一点 tint 用于提亮，不再在模糊之上铺满整块实色；需要更强实体感时，
-    // 调高「玻璃染色」或关闭磨砂模糊（走下面的雾面分支）。
-    val surfaceTint = if (navigation)
-        (0.06f + appearance.opacity * .30f).coerceIn(0f, .40f)      // 底栏容器保留一点实体感
-    else
-        (appearance.tint * .35f).coerceIn(0f, .16f)                  // 卡片几乎不着色
+
+    // RenderEffect/backdrop effects are unavailable on older Android releases,
+    // or when the user turned the frosted blur off. Draw the same soft sheen so
+    // the card still reads as glass — but never a solid white plate.
+    if (!appearance.enabled || Build.VERSION.SDK_INT < 31) {
+        return this.clip(shape).background(sheen).border(
+            1.dp, if (appearance.dark) Color.White.copy(alpha = rim)
+                  else Color.White.copy(alpha = rim), shape)
+    }
     return drawBackdrop(backdrop = backdrop, shape = { shape }, effects = {
         if (appearance.vibrant) vibrancy()
-        if (blurDp > 0) blur(blurDp.dp.toPx())
+        if (appearance.blur > 0) blur(appearance.blur.dp.toPx())
         if (appearance.height > 0 || appearance.amount > 0) lens(
             refractionHeight = appearance.height.dp.toPx(), refractionAmount = appearance.amount.dp.toPx(),
             chromaticAberration = appearance.chromatic)
-    }, highlight = { Highlight(width = 1.dp, alpha = appearance.border.coerceIn(0f, .8f)) },
-        shadow = { Shadow(radius = 8.dp, color = Color.Black, alpha = if (appearance.dark) .20f else .08f) },
-        onDrawSurface = { if (surfaceTint > 0f) drawRect(surface.copy(alpha = surfaceTint)) })
+    }, highlight = { Highlight(width = 1.dp, alpha = rim) },
+        // 卡片不再投放大阴影：浅色背景上那圈灰白晕边同样会被当成「白框」。
+        shadow = null,
+        onDrawSurface = { if (tintAlpha > 0f) drawRect(sheen.toSolid(surface, tintAlpha)) })
 }
+
+/** 把 sheen 平均成一个等效纯色（onDrawSurface 只接受单次 drawRect）。 */
+private fun Brush.toSolid(surface: Color, alpha: Float): Color =
+    if (surface.luminance() > .5f) Color.White.copy(alpha = alpha)
+    else Color.White.copy(alpha = alpha * .22f)
+
+private fun Color.luminance(): Float = 0.299f * red + 0.587f * green + 0.114f * blue
 
 /**
  * 根背景层：极光或壁纸**只在这里画一次**，再作为 backdrop 交给所有页面与底栏采样。
