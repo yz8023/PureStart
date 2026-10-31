@@ -1,7 +1,7 @@
 id=com.yz8023.purestart
 name=PureStart (ModKit Edition)
-version=v15.1.5
-versionCode=114
+version=v15.1.6
+versionCode=115
 author=yz8023
 description=PureStart 现代化 M3 悬浮底栏版，内置 XiaoCan（小蚕惠生活）净化与通用去广告引擎，支持 DexFinder 特征自动匹配。
 minApiVersion=100

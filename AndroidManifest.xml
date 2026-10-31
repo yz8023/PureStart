@@ -1,14 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.yz8023.purestart"
-    android:versionCode="114"
-    android:versionName="15.1.5">
+    android:versionCode="115"
+    android:versionName="15.1.6">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <!-- 权限面收窄（按外部分析报告 P2）：
          · 移除 INTERNET：模块自身无任何网络请求（反馈按钮走浏览器 ACTION_VIEW）；
          · 移除 QUERY_ALL_PACKAGES：改用下方 <queries> 精确声明 17 个目标包，
            设置页只逐包查询目标（不再全量枚举）。 -->
+    <!-- 系统壁纸：Android 14+ 只有持有「所有文件访问」的应用才能读到桌面壁纸
+         （WallpaperManager.getDrawable 官方文档；Google 标记 Won't Fix）。
+         权限仅在用户主动选择「系统壁纸」时通过系统设置页授予，模块本身不主动申请、
+         不用于读写用户文件；不授予则自动提示并建议改用自定义图片。
+         参考实现：yz8023/UI 素材库/网络壁纸与离线缓存/代码/SystemWallpaper.kt -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- Android 12 及以下读系统壁纸需要该权限；13+ 由上面的「所有文件访问」覆盖 -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
     <queries>
         <package android:name="com.realtech.xiaocan" />
         <package android:name="com.netease.cloudmusic" />

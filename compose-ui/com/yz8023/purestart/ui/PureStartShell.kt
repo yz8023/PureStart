@@ -143,7 +143,7 @@ fun PureStartShell(repository: SettingsRepository) {
                     // 松手就跳到相邻的错误页。前几版更糟：按下瞬间就把胶囊瞬移到手指位置。
                     //
                     // 新版语义与系统 Pager 一致：
-                    //   胶囊目标位 = 当前页 - 手指相对按下点的位移 / 单槽宽度
+                    //   胶囊目标位 = 当前页 + slotDelta(手指位移)（手指左移 = 下一页）
                     // 手指左移（负 dx）→ 槽位 +1；右移 → 槽位 -1；按下不动就不动。
                     val width = size.width.toFloat()
                     val tabWidth = width / 4f
@@ -164,9 +164,9 @@ fun PureStartShell(repository: SettingsRepository) {
                             travelled += change.positionChange().x
                             if (!dragging && kotlin.math.abs(travelled) > slop) dragging = true
                             if (dragging) {
-                                // 只移动「该移动的距离」：单槽宽度对应一个槽位，首尾不越界。
-                                val delta = if (rtl) travelled / tabWidth else -travelled / tabWidth
-                                position = (startPage + delta).coerceIn(0f, 3f)
+                                // 统一方向约定（见 DragMath.slotDelta）：手指左移 = 槽位 +1，
+                                // 与页面滑动、胶囊滑动方向一致。
+                                position = (startPage + slotDelta(travelled, width, rtl)).coerceIn(0f, 3f)
                                 dockDragPosition = position
                                 change.consume()
                             }

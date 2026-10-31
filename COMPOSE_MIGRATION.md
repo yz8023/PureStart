@@ -100,3 +100,20 @@
   唯一控制，拉到 0 即完全透明。
 - 切换背景不再无条件 recreate（只有进出系统壁纸才重建）。
 - 新增行为测试：多观察者全部收到通知、纯 UI 键切换也会通知。
+
+## v15.1.6 系统壁纸 / 普通模式 / 底栏方向（对照 yz8023/UI 重做）
+
+- **系统壁纸**：上一版走「透明窗口 + FLAG_SHOW_WALLPAPER」，多数 ROM 不透出壁纸，等于没实现。
+  对照参考仓库 `素材库/网络壁纸与离线缓存/代码/SystemWallpaper.kt` 与 `实现方案.md` 重做：
+  清单声明 `MANAGE_EXTERNAL_STORAGE`（+ `READ_EXTERNAL_STORAGE` maxSdk 32），读取走
+  `drawable` → `getWallpaperFile(FLAG_SYSTEM)` 双通道；选择系统壁纸时若读不到，
+  自动跳 `ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION` 授权页，返回后重读；
+  设置页常驻授权按钮并显示具体失败原因；`ON_RESUME` 自动重读。
+  已删除上一版的 `AppTheme.Wallpaper` 透明窗口主题与 `FLAG_SHOW_WALLPAPER`。
+- **普通模式**：参考仓库 `VisualMode.Normal` 是 `baseTint.copy(alpha = 1f)` 的**实心**卡片
+  （不采样背景）。此前本项目把「普通」做成了玻璃关掉的半透明降级，导致浅色主题永远有发白块。
+  新增 `KEY_PLAIN_MODE`（设置 → 外观 → 普通模式），打开后为实心 Material 卡片。
+- **底栏方向**：历史上底栏用「手指右移 = 槽位 +1」，页面用「手指左移 = 下一页」，方向相反。
+  统一为 `DragMath.slotDelta()`：手指左移 = 槽位 +1 = 下一页，位移与速度共用同一约定；
+  `DragMathTest` 新增方向一致性用例。
+- 仍未在真机验收。

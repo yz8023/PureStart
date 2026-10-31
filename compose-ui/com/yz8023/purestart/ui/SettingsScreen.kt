@@ -73,6 +73,41 @@ private fun BackgroundCard(revision: Int) {
         }
     }
     val names = listOf("极光", "系统壁纸", "自定义图片")
+    // 读取状态与「所有文件访问」授权状态：ON_RESUME 时重读，授权返回后立即生效。
+    var status by remember { mutableStateOf("") }
+    var needsGrant by remember { mutableStateOf(false) }
+    val lifecycle = (context as? ComponentActivity)?.lifecycle
+    DisposableEffect(lifecycle, mode) {
+        fun refresh() {
+            if (mode != WallpaperRepository.MODE_SYSTEM) return
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    WallpaperRepository.systemWallpaperStatus(context) to
+                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                            !WallpaperRepository.hasAllFilesAccess())
+                }
+                status = result.first
+                needsGrant = result.second
+            }
+        }
+        refresh()
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refresh()
+        }
+        lifecycle?.addObserver(observer)
+        onDispose { lifecycle?.removeObserver(observer) }
+    }
+    // 系统「所有文件访问」设置页返回 → 重读壁纸
+    val grantLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()) {
+        scope.launch {
+            val text = withContext(Dispatchers.IO) { WallpaperRepository.systemWallpaperStatus(context) }
+            status = text
+            needsGrant = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                !WallpaperRepository.hasAllFilesAccess()
+            if (text.isEmpty()) Toast.makeText(context, "已读取到系统壁纸", Toast.LENGTH_SHORT).show()
+        }
+    }
     Column(Modifier.fillMaxWidth().sceneGlassPanel().padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("应用背景", style = MaterialTheme.typography.bodyLarge)
@@ -83,19 +118,26 @@ private fun BackgroundCard(revision: Int) {
                         picker.launch(PickVisualMediaRequest(
                             ActivityResultContracts.PickVisualMedia.ImageOnly))
                     } else {
-                        val wasSystem = prefs.getInt(Prefs.KEY_WALLPAPER_MODE, 0) ==
-                            WallpaperRepository.MODE_SYSTEM
                         prefs.edit().putInt(Prefs.KEY_WALLPAPER_MODE, index).apply()
-                        // 只有「系统壁纸」的进出才需要重建：窗口透明标志只在 onCreate 生效。
-                        // 极光 <-> 自定义图片只是换背景层内容，重建反而会丢滚动位置。
-                        val needsSystemWindow = index == WallpaperRepository.MODE_SYSTEM || wasSystem
                         if (index == WallpaperRepository.MODE_SYSTEM) {
+                            // 对照 yz8023/UI：先尝试直接读；Android 14+ 读不到就带用户去
+                            // 系统「所有文件访问」设置页，授权返回后自动重读。
                             scope.launch {
-                                withContext(Dispatchers.IO) { WallpaperRepository.rememberProbe(context) }
-                                if (needsSystemWindow) (context as? Activity)?.recreate()
+                                val text = withContext(Dispatchers.IO) {
+                                    WallpaperRepository.systemWallpaperStatus(context)
+                                }
+                                status = text
+                                needsGrant = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                                    !WallpaperRepository.hasAllFilesAccess()
+                                if (text.isNotEmpty()) {
+                                    WallpaperRepository.allFilesAccessSettingsIntent(context)?.let { intent ->
+                                        try { grantLauncher.launch(intent) } catch (_: Throwable) {
+                                            Toast.makeText(context, "无法打开授权页，请手动在系统设置中授权",
+                                                Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
                             }
-                        } else if (wasSystem) {
-                            (context as? Activity)?.recreate()
                         }
                     }
                 }, label = { Text(name) })
@@ -103,20 +145,29 @@ private fun BackgroundCard(revision: Int) {
         }
         Text(when (mode) {
             WallpaperRepository.MODE_SYSTEM ->
-                if (Build.VERSION.SDK_INT > Build.VERSION_CODES.S_V2)
-                    "使用系统桌面壁纸：Android 13 起系统不再允许应用读取壁纸图片（Google 已标记 Won't Fix），" +
-                        "因此改用透明窗口让系统把壁纸画在下层，玻璃依然能折射。仅显示、不修改系统壁纸，无需任何权限。"
-                else
-                    "使用系统桌面壁纸：只读取显示，不修改系统设置，无需任何权限。"
+                "读取系统桌面壁纸（只读显示，不修改系统壁纸）。Android 14 起系统要求「所有文件访问」才允许读取，" +
+                    "未授权时不会假装成功，会给出提示并可一键去授权。"
             WallpaperRepository.MODE_CUSTOM -> "已使用相册图片，点「自定义图片」可重新选择"
             else -> "内置极光背景，取自 yz8023/UI 的 AuroraBackground"
         }, style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (mode == WallpaperRepository.MODE_SYSTEM) {
-            val reason = remember(revision, mode) { Prefs.wallpaperError(context) }
-            if (!reason.isNullOrBlank()) {
-                Text("读取状态：$reason", style = MaterialTheme.typography.bodySmall,
+            if (status.isNotEmpty()) {
+                Text("读取状态：$status", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error)
+            } else {
+                Text("读取状态：正常（已取得系统壁纸）", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (needsGrant && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                GlassActionRow("开启「所有文件访问」", "授权后返回即可读到系统壁纸") {
+                    WallpaperRepository.allFilesAccessSettingsIntent(context)?.let { intent ->
+                        try { grantLauncher.launch(intent) } catch (_: Throwable) {
+                            Toast.makeText(context, "无法打开授权页，请在系统设置中手动授权",
+                                Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
             }
         }
         if (mode != WallpaperRepository.MODE_AURORA) {
@@ -173,6 +224,9 @@ fun SettingsScreen(repository: SettingsRepository, bottomInset: Dp = 96.dp) {
         val modes = listOf("跟随系统", "浅色磨砂玻璃", "深色磨砂玻璃", "极光流体磨砂玻璃")
         val theme = remember(revision) { repository.themeMode() }
         Text("外观：${modes.getOrElse(theme) { modes[0] }}", Modifier.fillMaxWidth().sceneGlassPanel().clickable { dialog = "theme" }.padding(12.dp))
+        // 对照 yz8023/UI 的 VisualMode：普通模式 = 实心 Material 卡片（不采样背景），
+        // 与「磨砂模糊」是两件事：关模糊仍走玻璃降级，普通模式则是完全实心。
+        PreferenceSwitch("普通模式（实心卡片，不做玻璃）", Prefs.KEY_PLAIN_MODE, false, revision)
         PreferenceSwitch("磨砂模糊", Prefs.KEY_LIQUID_BLUR, true, revision)
         BackgroundCard(revision)
         val chevronRotation by animateFloatAsState(if (expanded) 180f else 0f, label = "glassDetailsChevron")

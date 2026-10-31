@@ -47,6 +47,6 @@ assert '.background(sheen)' in theme, '普通模式（降级分支）应使用�
 assert 'fun BoxScope.WallpaperSurface' in theme and 'private fun BoxScope.AuroraBlobs' in theme, '需要极光与壁纸两种背景实现'
 assert 'PickVisualMedia' in settings or 'PickVisualMedia' in (root / 'compose-ui/com/yz8023/purestart/ui/SettingsScreen.kt').read_text(), '应用背景需支持相册选图'
 wallpaper = (root / 'compose-ui/com/yz8023/purestart/ui/WallpaperRepository.kt').read_text()
-assert 'MODE_SYSTEM' in wallpaper and 'loadSystemBitmap' in wallpaper
+assert 'MODE_SYSTEM' in wallpaper and 'loadSystemWallpaper' in wallpaper
 assert ET.parse(root / 'res/drawable/ic_chevron_down.xml').getroot().find('path') is not None
 print('PASS: static glass/navigation and launcher entry contracts; device behaviour not tested')

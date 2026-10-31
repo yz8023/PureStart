@@ -44,6 +44,8 @@ public final class Prefs {
     public static final String KEY_WALLPAPER_ERROR = "wallpaper_error";
     /** 卡片底色 0..40（v15.1.5；默认 10，可拉到 0 得到完全透明卡片） */
     public static final String KEY_CARD_TINT = "card_tint";
+    /** 普通模式（v15.1.6）：true = 实心 Material 卡片，不做玻璃/折射/模糊 */
+    public static final String KEY_PLAIN_MODE = "plain_mode";
     public static final String KEY_DESKTOP_ICON = "set_desktop_icon";
 
     public static final String KEY_GLASS_OPACITY = "glass_opacity";
@@ -107,6 +109,13 @@ public final class Prefs {
      * 拉到 0 时卡片只剩一圈极淡的描边，完全透出背景。
      */
     public static float cardTint(Context c) { return clamp(sp(c).getInt(KEY_CARD_TINT, 10) / 100f, 0f, .40f); }
+
+    /**
+     * 普通模式（对照 yz8023/UI 的 VisualMode.Normal）：卡片是**实心** Material 表面，
+     * 不采样背景、不模糊、不折射；深色主题用深色实心、浅色主题用白色实心卡片。
+     */
+    public static boolean plainMode(Context c) { return sp(c).getBoolean(KEY_PLAIN_MODE, false); }
+    public static void setPlainMode(Context c, boolean v) { sp(c).edit().putBoolean(KEY_PLAIN_MODE, v).apply(); }
     public static String wallpaperError(Context c) { return sp(c).getString(KEY_WALLPAPER_ERROR, null); }
     public static void setWallpaperError(Context c, String v) {
         sp(c).edit().putString(KEY_WALLPAPER_ERROR, v).apply();

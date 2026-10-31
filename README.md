@@ -1,6 +1,6 @@
 # PureStart · Compose 迁移版
 
-LSPosed/libxposed 模块。设置入口使用 Kotlin + Compose，液态玻璃参考 [yz8023/ui](https://github.com/yz8023/ui) 的 backdrop / lens 方案，应用背景提供极光 / 系统壁纸（窗口级合成，无需权限）/ 相册自定义图片三种来源（v15.1.4）；Hook 与原配置存储沿用 Java 实现。最低 Android 8.0（API 26）。不同系统版本和设备可能对模糊、折射等效果降级。
+LSPosed/libxposed 模块。设置入口使用 Kotlin + Compose，液态玻璃参考 [yz8023/ui](https://github.com/yz8023/ui) 的 backdrop / lens 方案，应用背景提供极光 / 系统壁纸（需「所有文件访问」授权，见 README 权限说明）/ 相册自定义图片三种来源（v15.1.6）；Hook 与原配置存储沿用 Java 实现。最低 Android 8.0（API 26）。不同系统版本和设备可能对模糊、折射等效果降级。
 
 ## 构建
 
@@ -44,5 +44,13 @@ release 使用 R8 及资源裁剪，并保留模块包内所有类及成员；�
 - `AndroidManifest.xml`：应用身份、版本、组件和可见包清单的权威来源。
 - `xposed/`：libxposed 入口与作用域元数据。
 - `third_party/`：参考项目许可说明。
+
+## 权限说明
+
+模块默认不需要任何权限。仅当你主动选择「应用背景 → 系统壁纸」时，才会引导你开启
+`MANAGE_EXTERNAL_STORAGE`（所有文件访问）——Android 14 起系统不再允许普通应用读取桌面壁纸
+（`WallpaperManager.getDrawable` 官方限制，Google 标记 Won't Fix），这是唯一可行途径，
+实现方式与 [yz8023/UI](https://github.com/yz8023/UI) 一致。不授权时功能会明确提示，
+可改用「自定义图片」或「极光」背景，那两种方式完全不需要任何权限。
 
 配置文件名与键、Provider authority 及静态作用域保留；按需求调整了 Hook 闸门及自检回传，`module.prop` 版本字段已同步 Manifest。迁移范围、构建结果与尚待验收事项见 `COMPOSE_MIGRATION.md`。

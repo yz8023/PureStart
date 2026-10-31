@@ -57,7 +57,7 @@ data class GlassAppearance(val dark: Boolean, val aurora: Boolean, val enabled: 
     val opacity: Float, val tint: Float, val blur: Int, val height: Int, val amount: Int,
     val border: Float, val vibrant: Boolean, val chromatic: Boolean,
     val wallpaper: Int = 0, val wallpaperPath: String? = null,
-    val wallpaperDim: Float = .30f, val cardTint: Float = .10f)
+    val wallpaperDim: Float = .30f, val cardTint: Float = .10f, val plain: Boolean = false)
 
 private val LocalAppearance = staticCompositionLocalOf {
     GlassAppearance(false, false, true, .55f, .08f, 0, 15, 20, .20f, true, true)
@@ -82,7 +82,7 @@ fun PureStartTheme(content: @Composable () -> Unit) {
             Prefs.blurDp(context), Prefs.prismHeightDp(context), Prefs.prismAmountDp(context),
             Prefs.borderAlpha(context), Prefs.vibrancy(context), Prefs.chromatic(context),
             Prefs.wallpaperMode(context), Prefs.wallpaperPath(context), Prefs.wallpaperDim(context),
-            Prefs.cardTint(context))
+            Prefs.cardTint(context), Prefs.plainMode(context))
     }
     val colors = if (appearance.dark) darkColorScheme(
         primary = if (appearance.aurora) Color(0xFF38BDF8) else Color(0xFF9ABEFF),
@@ -200,6 +200,20 @@ fun Modifier.glassPanel(backdrop: Backdrop, radius: Int = 22, navigation: Boolea
     } else {
         Brush.verticalGradient(listOf(Color.White.copy(alpha = tintAlpha),
             Color.White.copy(alpha = tintAlpha * .30f)))
+    }
+
+    // 普通模式（对照 yz8023/UI 的 VisualMode.Normal）：**实心** Material 卡片，
+    // 完全不采样背景。参考实现就是 `baseTint.copy(alpha = 1f)` + 阴影，
+    // 所以这里也必须是不透明的表面色——之前把「普通模式」做成了半透明玻璃降级，
+    // 于是浅色主题下既没有实心卡片的干净观感，又留下发白的半透明块。
+    if (appearance.plain) {
+        val solid = if (appearance.dark) MaterialTheme.colorScheme.surface
+                    else MaterialTheme.colorScheme.surface
+        return this.shadow(1.dp, shape, clip = false)
+            .clip(shape)
+            .background(solid)
+            .border(1.dp, if (appearance.dark) Color.White.copy(alpha = .06f)
+                            else Color.Black.copy(alpha = .05f), shape)
     }
 
     // RenderEffect/backdrop effects are unavailable on older Android releases,
