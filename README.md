@@ -1,6 +1,6 @@
 # PureStart · Compose 迁移版
 
-LSPosed/libxposed 模块。设置入口使用 Kotlin + Compose，液态玻璃参考 [yz8023/ui](https://github.com/yz8023/ui) 的 backdrop / lens 方案，应用背景提供极光 / 系统壁纸 / 相册自定义图片三种来源（v15.1.3）；Hook 与原配置存储沿用 Java 实现。最低 Android 8.0（API 26）。不同系统版本和设备可能对模糊、折射等效果降级。
+LSPosed/libxposed 模块。设置入口使用 Kotlin + Compose，液态玻璃参考 [yz8023/ui](https://github.com/yz8023/ui) 的 backdrop / lens 方案，应用背景提供极光 / 系统壁纸（窗口级合成，无需权限）/ 相册自定义图片三种来源（v15.1.4）；Hook 与原配置存储沿用 Java 实现。最低 Android 8.0（API 26）。不同系统版本和设备可能对模糊、折射等效果降级。
 
 ## 构建
 
@@ -23,6 +23,7 @@ Linux x86_64 可在阅读并接受 Android SDK 许可后执行 `ACCEPT_ANDROID_S
 ```sh
 python3 scripts/check.py                     # 漂移门禁（含密钥在位）
 python3 tests/check_ui_contract.py           # 玻璃/导航/入口静态契约（含底栏胶囊回归断言）
+python3 tests/check_glass_surfaces.py        # 卡片通透度 + 系统壁纸取法回归断言
 python3 tests/check_backend_unchanged.py     # 需要基线提交 3bb6bbd 的 Git 检出
 python3 tests/test_settings_repository.py
 python3 tests/test_backup_repository.py # 在线下载测试用 org.json

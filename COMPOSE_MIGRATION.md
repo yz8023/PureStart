@@ -72,3 +72,16 @@
   底栏玻璃采样「背景 + 页面内容」两层。新增 `WallpaperRepository`（私有目录缓存、
   长边 2048、无权限读取系统壁纸）。
 - 仍未在真机验收观感与帧率。
+
+## v15.1.4 系统壁纸与玻璃表面修正
+
+- **系统壁纸调用失败**：`WallpaperManager.getDrawable()` 在 API 33 已被限制、API 34 起必定
+  `SecurityException`（Google 标记 Won't Fix）。改为透明窗口主题 `AppTheme.Wallpaper`
+  （`windowIsTranslucent` + `windowShowWallpaper`）+ 窗口 `FLAG_SHOW_WALLPAPER`，
+  由系统在窗口下层合成壁纸；API ≤ 32 仍优先直接读取位图。新增读取状态上报
+  （`Prefs.KEY_WALLPAPER_ERROR`），设置页直接显示原因。
+- **卡片白底**：上一版只改了降级分支。真正原因是玻璃分支的
+  `onDrawSurface = drawRect(surface.copy(alpha = alpha))` 在模糊之后又盖了一层实色
+  （默认 .10、不透明度拉满 .45）。现压到 `.03~.16`，底栏容器单独保留 `.06~.40`。
+- 新增 `tests/check_glass_surfaces.py` 防止两类问题复发，并断言背景功能不引入任何权限。
+- 仍未在真机验收（尤其透明窗口在国产 ROM 上的表现）。

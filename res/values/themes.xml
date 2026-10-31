@@ -5,4 +5,16 @@
         <item name="android:windowBackground">@color/page_bg</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
     </style>
+
+    <!-- v15.1.4「系统壁纸」模式专用：窗口不画背景，交给系统把桌面壁纸画在窗口下层。
+         Android 13+ 普通应用已无法通过 WallpaperManager.getDrawable() 读取壁纸
+         （Android 14 起必定 SecurityException，Google 标记 Won't Fix），
+         FLAG_SHOW_WALLPAPER + 透明窗口 是官方推荐的显示方式，
+         且壁纸由系统合成，玻璃的 RenderEffect 仍能真折射到它。 -->
+    <style name="AppTheme.Wallpaper" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowShowWallpaper">true</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
 </resources>

@@ -43,6 +43,13 @@ PREFS_ALLOWED_ADDITIONS = {
     'public static void setWallpaperPath(Context c, String v) { sp(c).edit().putString(KEY_WALLPAPER_PATH, v).apply(); }',
     '/** 壁纸压暗强度 0..0.7（默认 0.30） */',
     'public static float wallpaperDim(Context c) { return clamp(sp(c).getInt(KEY_WALLPAPER_DIM, 30) / 100f, 0f, .7f); }',
+    # v15.1.4：系统壁纸读取状态（仅用于设置页展示原因）
+    '/** 系统壁纸读取失败原因（v15.1.4；空 = 正常/未尝试） */',
+    'public static final String KEY_WALLPAPER_ERROR = "wallpaper_error";',
+    'public static String wallpaperError(Context c) { return sp(c).getString(KEY_WALLPAPER_ERROR, null); }',
+    'public static void setWallpaperError(Context c, String v) {',
+    'sp(c).edit().putString(KEY_WALLPAPER_ERROR, v).apply();',
+    '}',
 }
 
 def main():

@@ -1,6 +1,7 @@
 package com.yz8023.purestart.ui
 
 import android.app.Activity
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.Lifecycle
@@ -80,16 +81,36 @@ private fun BackgroundCard(revision: Int) {
                             ActivityResultContracts.PickVisualMedia.ImageOnly))
                     } else {
                         prefs.edit().putInt(Prefs.KEY_WALLPAPER_MODE, index).apply()
+                        if (index == WallpaperRepository.MODE_SYSTEM) {
+                            // 记录这次系统壁纸到底能不能取到位图，设置页直接给出原因。
+                            scope.launch {
+                                withContext(Dispatchers.IO) { WallpaperRepository.rememberProbe(context) }
+                                // 窗口透明标志只在 onCreate 生效，重建一次让壁纸透出来。
+                                (context as? Activity)?.recreate()
+                            }
+                        }
                     }
                 }, label = { Text(name) })
             }
         }
         Text(when (mode) {
-            WallpaperRepository.MODE_SYSTEM -> "使用系统桌面壁纸（只读取，不修改系统设置，无需权限）"
+            WallpaperRepository.MODE_SYSTEM ->
+                if (Build.VERSION.SDK_INT > Build.VERSION_CODES.S_V2)
+                    "使用系统桌面壁纸：Android 13 起系统不再允许应用读取壁纸图片（Google 已标记 Won't Fix），" +
+                        "因此改用透明窗口让系统把壁纸画在下层，玻璃依然能折射。仅显示、不修改系统壁纸，无需任何权限。"
+                else
+                    "使用系统桌面壁纸：只读取显示，不修改系统设置，无需任何权限。"
             WallpaperRepository.MODE_CUSTOM -> "已使用相册图片，点「自定义图片」可重新选择"
             else -> "内置极光背景，取自 yz8023/UI 的 AuroraBackground"
         }, style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (mode == WallpaperRepository.MODE_SYSTEM) {
+            val reason = remember(revision, mode) { Prefs.wallpaperError(context) }
+            if (!reason.isNullOrBlank()) {
+                Text("读取状态：$reason", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         if (mode != WallpaperRepository.MODE_AURORA) {
             val dim = remember(revision, mode) { prefs.getInt(Prefs.KEY_WALLPAPER_DIM, 30) }
             Text("背景压暗：$dim%", style = MaterialTheme.typography.bodySmall)

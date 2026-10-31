@@ -192,9 +192,10 @@ fun Modifier.glassPanel(backdrop: Backdrop, radius: Int = 22, navigation: Boolea
     // Keep text legible with the reference project's translucent fallback rather
     // than showing an almost invisible, falsely advertised refraction effect.
     if (!appearance.enabled || Build.VERSION.SDK_INT < 31) {
-        // v15.1.3 修复「普通模式每个卡片都有白底」：原实现在关闭磨砂时用
-        // surface.copy(alpha=.88) 的白底铺满卡片。现在改为极淡的同色雾面
-        // （白/黑 6%~14%），卡片能透出背景，仅保留 1dp 描边保证边界可读。
+        // 「普通模式」（关闭磨砂模糊 / Android 12 以下）用极淡的同色雾面，
+        // 而不是早期版本的 surface.copy(alpha = .88f) 实心白底：
+        // 原实现每个卡片都是一块白板，关掉磨砂后尤其明显。
+        // 现在只保留 5%~22% 的雾面 + 1dp 描边，卡片能透出背景。
         val veil = if (appearance.dark) Color.Black else Color.White
         val fallback = if (appearance.enabled) .10f + appearance.tint * .5f else .08f
         return this.shadow(2.dp, shape, clip = false).clip(shape)
@@ -205,8 +206,15 @@ fun Modifier.glassPanel(backdrop: Backdrop, radius: Int = 22, navigation: Boolea
     // The reference capsule uses its own 4dp blur, independently of the
     // user-controlled page-card blur; do not change the persisted preference.
     val blurDp = if (navigation) maxOf(4, appearance.blur) else appearance.blur
-    val alpha = if (navigation) (0.10f + appearance.opacity * .55f).coerceIn(0f, .72f)
-                else (appearance.tint + appearance.opacity * .04f).coerceIn(0f, .45f)
+    // v15.1.4：玻璃路径此前用 onDrawSurface 在**模糊之后**再盖一层 surface 实色
+    // （默认 .10、不透明度拉满时 .45）。模糊本身已经把背景抹成了接近纯色的雾面，
+    // 上面再压一层不透明白就是用户看到的「白色底方块」。
+    // 现在只保留一点 tint 用于提亮，不再在模糊之上铺满整块实色；需要更强实体感时，
+    // 调高「玻璃染色」或关闭磨砂模糊（走下面的雾面分支）。
+    val surfaceTint = if (navigation)
+        (0.06f + appearance.opacity * .30f).coerceIn(0f, .40f)      // 底栏容器保留一点实体感
+    else
+        (appearance.tint * .35f).coerceIn(0f, .16f)                  // 卡片几乎不着色
     return drawBackdrop(backdrop = backdrop, shape = { shape }, effects = {
         if (appearance.vibrant) vibrancy()
         if (blurDp > 0) blur(blurDp.dp.toPx())
@@ -215,7 +223,7 @@ fun Modifier.glassPanel(backdrop: Backdrop, radius: Int = 22, navigation: Boolea
             chromaticAberration = appearance.chromatic)
     }, highlight = { Highlight(width = 1.dp, alpha = appearance.border.coerceIn(0f, .8f)) },
         shadow = { Shadow(radius = 8.dp, color = Color.Black, alpha = if (appearance.dark) .20f else .08f) },
-        onDrawSurface = { drawRect(surface.copy(alpha = alpha)) })
+        onDrawSurface = { if (surfaceTint > 0f) drawRect(surface.copy(alpha = surfaceTint)) })
 }
 
 /**
@@ -232,12 +240,17 @@ fun GlassSceneRoot(content: @Composable BoxScope.() -> Unit) {
     val background = glassBackground()
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.matchParentSize().layerBackdrop(backdrop)) {
-            if (appearance.wallpaper == WallpaperRepository.MODE_AURORA) {
-                Box(Modifier.matchParentSize().background(background)) { AuroraBlobs() }
-            } else {
-                Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.background)) {
+            when (appearance.wallpaper) {
+                WallpaperRepository.MODE_AURORA ->
+                    Box(Modifier.matchParentSize().background(background)) { AuroraBlobs() }
+                WallpaperRepository.MODE_SYSTEM ->
+                    // 系统壁纸：窗口透明（FLAG_SHOW_WALLPAPER），壁纸由系统画在窗口下层，
+                    // 这里只叠压暗遮罩（API ≤ 32 能取到位图时也直接画出来）。
                     WallpaperSurface()
-                }
+                else ->
+                    Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.background)) {
+                        WallpaperSurface()
+                    }
             }
         }
         CompositionLocalProvider(LocalSceneBackdrop provides backdrop) { content() }

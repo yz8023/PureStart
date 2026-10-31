@@ -40,6 +40,8 @@ public final class Prefs {
     public static final String KEY_WALLPAPER_PATH = "wallpaper_path";
     /** 壁纸压暗强度 0..70（v15.1.3 新增；默认 30） */
     public static final String KEY_WALLPAPER_DIM = "wallpaper_dim";
+    /** 系统壁纸读取失败原因（v15.1.4；空 = 正常/未尝试） */
+    public static final String KEY_WALLPAPER_ERROR = "wallpaper_error";
     public static final String KEY_DESKTOP_ICON = "set_desktop_icon";
 
     public static final String KEY_GLASS_OPACITY = "glass_opacity";
@@ -98,6 +100,10 @@ public final class Prefs {
     public static void setWallpaperPath(Context c, String v) { sp(c).edit().putString(KEY_WALLPAPER_PATH, v).apply(); }
     /** 壁纸压暗强度 0..0.7（默认 0.30） */
     public static float wallpaperDim(Context c) { return clamp(sp(c).getInt(KEY_WALLPAPER_DIM, 30) / 100f, 0f, .7f); }
+    public static String wallpaperError(Context c) { return sp(c).getString(KEY_WALLPAPER_ERROR, null); }
+    public static void setWallpaperError(Context c, String v) {
+        sp(c).edit().putString(KEY_WALLPAPER_ERROR, v).apply();
+    }
     public static void setDesktopIconPref(Context c, boolean v) {
         sp(c).edit().putBoolean(KEY_DESKTOP_ICON, v).apply();
     }
