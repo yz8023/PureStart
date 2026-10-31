@@ -34,11 +34,16 @@
 - **`tests/check_backend_unchanged.py` 基线过严**：新增一条界面偏好键（页面滑动开关）会被判成「后端被改」。改为 `Prefs.java` 按**白名单新增行**核对，其余 Hook 键与读写方法仍受保护。
 - **`tests/check_ui_contract.py`**：增加断言，防止胶囊被重新放回 `dockContainer` 内部（该回归一旦发生，问题 1 就会复发）。
 - **单元测试补齐**：`DragMathTest` 新增底栏吸附、甩动、RTL 速度换算等用例（原测试在 v15.1.1 源码里实际未被执行）。
+- **`clean` 后构建失败**：`app/build.gradle.kts` 在配置阶段写 `AndroidManifest.xml` / `BuildInfo.java`，`clean` 会把这些文件删掉，导致下一次构建 `mainManifest ... doesn't exist`。现改为 `prepareGeneratedSources` 任务并显式声明输出与依赖。
+- **仓库与源码包不一致**：Compose 迁移后，旧 View UI 类（`SettingsActivity.java`、`LiquidBar.java`、`GlassEngine.java` 等 12 个文件）仍被 Git 跟踪，直接克隆仓库构建会出现 `SettingsActivity` 重复声明。已从仓库删除。
 
 ## 产物
 
-- `PureStart-v15.1.2-release.apk`（versionCode 111，versionName 15.1.2）
+- `PureStart-v15.1.2-release.apk`（versionCode 111，versionName 15.1.2，约 1.9MB）
 - `PureStart-v15.1.2-source.zip`（源码包，不含签名密钥）
+
+- APK SHA-256：`7e1a645bd5870568e5c8165d35f4df6049b5e8b75262b7d53efc176f51c26434`
+- 证书 SHA-256：`6c82544006f036be304a14d7334f102dd186d97998718764f88e7f3e477ab3ee`（与 v15.1.0 / v15.1.1 相同，可覆盖安装）
 
 ## 验证
 
