@@ -14,15 +14,16 @@ export KEYSTORE_PATH=/path/to/existing.keystore
 bash build.sh
 ```
 
-产物：`app/build/outputs/apk/release/app-release.apk`。无 `KEYSTORE_PATH` 时构建拒绝打包；不会生成新 release 密钥。Android 以包名和签名证书判断能否覆盖安装，**务必先核对现有安装版本证书、备份配置**。源码压缩包不包含签名密钥。
+产物：`app/build/outputs/apk/release/app-release.apk`（v15.1.2 起 `clean` 后可直接构建，生成文件由 `prepareGeneratedSources` 任务产出）。无 `KEYSTORE_PATH` 时构建拒绝打包；不会生成新 release 密钥。Android 以包名和签名证书判断能否覆盖安装，**务必先核对现有安装版本证书、备份配置**。源码压缩包不包含签名密钥。
 
 Linux x86_64 可在阅读并接受 Android SDK 许可后执行 `ACCEPT_ANDROID_SDK_LICENSES=1 bash scripts/setup-compose-env.sh` 安装构建依赖，按脚本末尾提示设置环境变量。
 
 ## 验证
 
 ```sh
-python3 scripts/check.py
-python3 tests/check_backend_unchanged.py
+python3 scripts/check.py                     # 漂移门禁（含密钥在位）
+python3 tests/check_ui_contract.py           # 玻璃/导航/入口静态契约（含底栏胶囊回归断言）
+python3 tests/check_backend_unchanged.py     # 需要基线提交 3bb6bbd 的 Git 检出
 python3 tests/test_settings_repository.py
 python3 tests/test_backup_repository.py # 在线下载测试用 org.json
 python3 tests/check_apk.py              # 需 ANDROID_HOME，针对默认 release 产物
