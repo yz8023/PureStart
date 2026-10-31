@@ -21,6 +21,7 @@ import com.yz8023.purestart.Targets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.zip.ZipFile
+import com.yz8023.purestart.repository.SettingsRepository
 
 internal data class AppRecord(val pkg: String, val label: String, val version: String,
                              val installed: Boolean, val description: String)

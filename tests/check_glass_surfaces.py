@@ -7,13 +7,13 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 root = Path(__file__).resolve().parents[1]
-theme = (root / 'compose-ui/com/yz8023/purestart/ui/GlassTheme.kt').read_text()
-repo = (root / 'compose-ui/com/yz8023/purestart/ui/WallpaperRepository.kt').read_text()
-shell = (root / 'compose-ui/com/yz8023/purestart/ui/PureStartShell.kt').read_text()
-math = (root / 'compose-ui/com/yz8023/purestart/ui/DragMath.kt').read_text()
-settings = (root / 'compose-ui/com/yz8023/purestart/ui/SettingsScreen.kt').read_text()
-prefs = (root / 'src/com/yz8023/purestart/Prefs.java').read_text()
-manifest_text = (root / 'AndroidManifest.xml').read_text()
+theme = (root / 'app/src/main/java/com/yz8023/purestart/ui/GlassTheme.kt').read_text()
+repo = (root / 'app/src/main/java/com/yz8023/purestart/ui/WallpaperRepository.kt').read_text()
+shell = (root / 'app/src/main/java/com/yz8023/purestart/ui/PureStartShell.kt').read_text()
+math = (root / 'app/src/main/java/com/yz8023/purestart/ui/DragMath.kt').read_text()
+settings = (root / 'app/src/main/java/com/yz8023/purestart/ui/SettingsScreen.kt').read_text()
+prefs = (root / 'app/src/main/java/com/yz8023/purestart/Prefs.java').read_text()
+manifest_text = (root / 'app/src/main/AndroidManifest.xml').read_text()
 
 # 1) 卡片不得在模糊之后铺满不透明表面（「白底方块」的根因）
 assert 'onDrawSurface = { drawRect(surface.copy(alpha = alpha)) }' not in theme
@@ -67,7 +67,7 @@ assert 'Highlight.Default.copy(alpha = .75f)' in theme, '容器高光应与参�
 assert 'alpha = 1f - p' in theme, '按压时胶囊底色应变淡（参考实现 1 - progress）'
 
 # 8) 权限面：只有系统壁纸需要的两个存储权限，不得有 INTERNET / 全盘枚举
-manifest = ET.parse(root / 'AndroidManifest.xml').getroot()
+manifest = ET.parse(root / 'app/src/main/AndroidManifest.xml').getroot()
 ns = '{http://schemas.android.com/apk/res/android}'
 permissions = sorted(node.attrib.get(ns + 'name', '').replace('android.permission.', '')
                      for node in manifest.findall('uses-permission'))

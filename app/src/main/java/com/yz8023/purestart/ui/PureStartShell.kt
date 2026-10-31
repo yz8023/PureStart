@@ -41,6 +41,7 @@ import com.yz8023.purestart.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.yz8023.purestart.repository.SettingsRepository
 
 /**
  * 主壳：四个横向页面 + 一条底栏。

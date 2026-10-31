@@ -11,13 +11,13 @@
 
 ```
 PureStart/
-├── AndroidManifest.xml        # ★ 版本号唯一来源 + 权限/queries 声明
+├── app/src/main/AndroidManifest.xml  # ★ 版本号唯一来源 + 权限/queries 声明
 ├── build.sh                   # 一键构建（版本号/文件名全部派生自 Manifest；签名仅环境变量）
-├── scripts/check.py           # 漂移门禁 6 项（见「五、门禁」）
+├── scripts/check.py           # 漂移门禁 7 项（见「五、门禁」）
 ├── debug.keystore             # 连续发布签名密钥（证书 6c825440…；构建经 KEYSTORE_PATH 引用）
 ├── libs/api.jar               # libxposed API（仅编译期）
-├── res/                       # 图标 + 设置页资源
-├── src/com/yz8023/purestart/
+├── app/src/main/res/          # 图标 + 设置页资源
+├── app/src/main/java/com/yz8023/purestart/
 │   ├── Main.java              # ★ 模块入口：目标分发 + 开关闸门（fail-safe）+ 自检上报
 │   ├── Targets.java           # ★ 目标清单单一事实来源（LIST：包名 + 描述）
 │   ├── XiaoCanHook.java       # 小蚕惠生活净化（含壳延迟安装；主类未命中有 ERROR 留痕）
@@ -27,7 +27,9 @@ PureStart/
 │   ├── HookStateProvider.java # 跨进程开关通道 + Hook 自检回传通道（exported）
 │   ├── IconControlReceiver.java # 桌面图标隐藏/恢复（adb 广播，防锁死兜底）
 │   ├── Prefs.java             # ★ SharedPreferences 全键收口（玻璃参数/Hook 开关/自检数据）
-│   ├── SettingsActivity.java  # 设置页装配 + 底栏宿主 + GlassCardView.Host（≤800 行）
+│   ├── SettingsActivity.kt    # 设置页装配 + 底栏宿主（Kotlin/Compose）
+│   ├── ui/                    # Compose 页面、玻璃主题、底栏几何、壁纸仓库（Kotlin）
+│   ├── repository/            # 设置读写 + 备份适配层（Kotlin + Flow，零 Compose 依赖）
 │   ├── LiquidBar.java         # 液态玻璃底栏（弹簧/手势/胶囊渲染；P1-2 自 Activity 拆出）
 │   ├── GlassEngine.java       # 磨砂捕获引擎（位图链/box 模糊/BackdropView；P1-2 拆出）
 │   ├── HomePage.java          # 「首页」页组装（P1-2 拆出）
@@ -58,7 +60,7 @@ App 专属逻辑新建 `XxxHook.java`，在 `Main.onPackageLoaded` 分发，
 
 ## 二、版本与发布
 
-- 版本号**只改 `AndroidManifest.xml`**（versionName/versionCode）。
+- 版本号**只改 `app/src/main/AndroidManifest.xml`**（versionName/versionCode）。
   `build.sh` 自动派生：module.prop 版本行、输出文件名
   `build/PureStart-vX.Y.Z-release.apk`。代码内版本**运行时**经 PackageManager 读取
   （`Main.moduleVersion()` / 设置页 `versionName()`），禁止任何硬编码字面版本号。
@@ -111,7 +113,7 @@ python3 scripts/check.py    # 退出码：通过 0、发现漂移 1
   理论上可被他 App 读取开关/伪造自检上报——接受此取舍，因敏感度低且是跨进程最通用通道。
 - 包名已迁移为正式包名 `com.yz8023.purestart`（v15.1.0 断代；原 `com.example.l` 为脚手架占位）。
   同步面：Manifest package / Provider authority / `module.prop` id / `java_init.list` /
-  IconAlias ComponentName / 图标恢复广播 action / 源码目录 `src/com/yz8023/purestart/`，
+  IconAlias ComponentName / 图标恢复广播 action / 源码目录 `app/src/main/java/com/yz8023/purestart/`，
   全部由 check.py 第 4 项（authority 一致性）与构建流程把关。
   旧包名版本不可覆盖升级（Android 按包名判定），旧版隐藏图标恢复用
   `adb shell pm enable com.example.l/.IconAlias`。

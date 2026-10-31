@@ -8,7 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.yz8023.purestart.ui.PureStartShell
 import com.yz8023.purestart.ui.PureStartTheme
-import com.yz8023.purestart.ui.SettingsRepository
+import com.yz8023.purestart.repository.SettingsRepository
 import java.util.Locale
 
 /** Settings entry used by the launcher alias, LSPosed, and icon recovery receiver. */

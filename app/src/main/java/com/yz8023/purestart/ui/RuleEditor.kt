@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
+import com.yz8023.purestart.repository.SettingsRepository
 
 /**
  * Compose rule editor connected to the existing preferences adapter.

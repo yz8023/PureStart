@@ -46,6 +46,7 @@ import com.yz8023.purestart.BuildInfo
 import com.yz8023.purestart.Targets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.yz8023.purestart.repository.SettingsRepository
 
 /** Compose status and home page. */
 @Composable

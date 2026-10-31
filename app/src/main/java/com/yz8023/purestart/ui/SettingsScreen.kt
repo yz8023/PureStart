@@ -39,6 +39,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
+import com.yz8023.purestart.repository.intFlow
+import com.yz8023.purestart.repository.booleanFlow
+import com.yz8023.purestart.repository.SettingsRepository
 
 /**
  * 应用背景选择（v15.1.3）：极光（内置，参考 yz8023/UI）／系统桌面壁纸／相册自定义图片。

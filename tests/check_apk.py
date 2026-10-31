@@ -7,7 +7,7 @@ apk = Path(sys.argv[1]) if len(sys.argv) > 1 else root / 'app/build/outputs/apk/
 sdk = os.environ.get('ANDROID_HOME')
 if not sdk: raise SystemExit('ANDROID_HOME is required')
 ns = '{http://schemas.android.com/apk/res/android}'
-manifest = ET.parse(root / 'AndroidManifest.xml').getroot()
+manifest = ET.parse(root / 'app/src/main/AndroidManifest.xml').getroot()
 with zipfile.ZipFile(apk) as z:
     for name in ('java_init.list', 'scope.list'):
         assert z.read('META-INF/xposed/' + name) == (root / 'xposed' / name).read_bytes(), name

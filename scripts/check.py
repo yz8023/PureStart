@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """PureStart 漂移检查门禁（照抄 ui 模板 check-template.py 的结构，纯标准库）。
 
-检查项（提示词 P1-1 规定的三项 + 两项守门）：
+检查项（提示词 P1-1 规定的三项 + 两项守门 + v15.2 新布局守门）：
   1. 目标 App 清单三处一致：Targets.java 的 LIST / xposed/scope.list /
-     AndroidManifest.xml 的 queries —— 三个包名集合两两 diff，有差即报错并指出差在哪两个文件之间；
-  2. 版本号一致性：除 AndroidManifest.xml（唯一权威）外，任何源文件出现字面版本号即报错；
-     xposed/module.prop 的 version/versionCode 必须与 Manifest 一致（build.sh 派生写回）；
+     app/src/main/AndroidManifest.xml 的 queries —— 三个包名集合两两 diff；
+  2. 版本号一致性：除清单（唯一权威）外，任何源文件出现字面版本号即报错；
+     xposed/module.prop 的 version/versionCode 必须与清单一致（构建任务派生写回）；
   3. Main.java 声称的 API 版本必须与 xposed/module.prop 的 targetApiVersion 一致；
-  4. authority 一致性：Manifest 的 Provider authority == Main.java 中的 authority 拼接
-     （MODULE_PACKAGE + ".hookstate"），供包名迁移（P2-3）前后把关；
-  5. UI/Hook 类隔离 + 签名密钥在位（守门项，防历史崩溃回归）。
+  4. authority 一致性：清单 Provider authority == namespace + ".hookstate"
+     （v15.2 起包名权威由 `app/build.gradle.kts` 的 namespace 承担，清单不再写 package=）；
+  5. UI/Hook 类隔离 + 签名密钥在位（守门项，防历史崩溃回归）；
+  6. v15.2 布局守门：UI/repository 层不得残留 Java（第一阶段已全部迁移到 Kotlin），
+     且 repository 层不得依赖 Compose（保证 tests/test_*_repository.py 能在纯 JVM 上跑）。
 
 用法：python3 scripts/check.py；退出码：通过 0、发现漂移 1。
 build.sh 在每次构建前自动运行；提交前请手动跑一次。
@@ -19,6 +21,10 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MANIFEST = "app/src/main/AndroidManifest.xml"
+MAIN_JAVA = "app/src/main/java"
+PKG_ROOT = "app/src/main/java/com/yz8023/purestart"
+GRADLE = "app/build.gradle.kts"
 
 
 def read(p):
@@ -41,12 +47,12 @@ def main():
     # Targets is the sole UI description source. Verify scope and package visibility
     # against it; this replaces the removed duplicate APP_DESC, not the drift gate.
     print("[1] 目标应用清单（Targets.java / scope.list / Manifest queries）")
-    targets = [t for t in re.findall(r'\{\s*"([A-Za-z0-9_.]+)",\s*"', read("src/com/yz8023/purestart/Targets.java"))
+    targets = [t for t in re.findall(r'\{\s*"([A-Za-z0-9_.]+)",\s*"', read(PKG_ROOT + "/Targets.java"))
                if "." in t and not t.startswith("com.example")]
     scope = [line.strip() for line in read("xposed/scope.list").splitlines()
              if line.strip() and not line.strip().startswith("#")]
     import xml.etree.ElementTree as ET
-    manifest_root = ET.fromstring(read("AndroidManifest.xml"))
+    manifest_root = ET.fromstring(read(MANIFEST))
     android_name = "{http://schemas.android.com/apk/res/android}name"
     queries = [node.attrib.get(android_name, "") for node in manifest_root.findall("./queries/package")]
     lists = [("Targets.java", targets), ("scope.list", scope), ("Manifest queries", queries)]
@@ -62,9 +68,9 @@ def main():
     if targets and all(set(targets) == set(entries) for _, entries in lists):
         ok(f"三处一致（{len(set(targets))} 个目标包）")
 
-    # ---- 2. 版本号：Manifest 唯一权威 ----
+    # ---- 2. 版本号：清单唯一权威 ----
     print("[2] 版本号（Manifest 唯一权威）")
-    manifest = read("AndroidManifest.xml")
+    manifest = read(MANIFEST)
     vname = re.search(r'android:versionName="([^"]+)"', manifest)
     vcode = re.search(r'android:versionCode="([^"]+)"', manifest)
     prop = read("xposed/module.prop")
@@ -75,15 +81,19 @@ def main():
     else:
         if vname.group(1) != pname.group(1).lstrip("v") or vcode.group(1) != pcode.group(1):
             errors += fail(f"module.prop 与 Manifest 不一致：{pname.group(1)}/{pcode.group(1)} vs "
-                           f"v{vname.group(1)}/{vcode.group(1)}（build.sh 会写回，请先构建一次）")
+                           f"v{vname.group(1)}/{vcode.group(1)}（构建任务会写回，请先构建一次）")
         else:
             ok(f"module.prop 与 Manifest 一致（v{vname.group(1)}/{vcode.group(1)}）")
+    if 'package="' in manifest:
+        errors += fail("清单不应再写 package=（AGP 8 禁止；包名权威是 build.gradle.kts 的 namespace）")
+    else:
+        ok("清单未残留 package= 属性（AGP 8 要求）")
     # 只拦「本应用版本号」字面量：当前版本精确匹配 + 双位数主版本形态（1x.y.z）。
     # SDK（android-35 / build-tools 34.0.0）、LSPosed（1.9.2+）等外部版本号不拦。
     vpat = re.compile(r"v?" + re.escape(vname.group(1) if vname else "15.0.0")
                       + r"(?![0-9])|" + r"1[0-9]\.\d+\.\d+")
     hits = []
-    for dirpath, _, files in os.walk(os.path.join(ROOT, "src")):
+    for dirpath, _, files in os.walk(os.path.join(ROOT, MAIN_JAVA)):
         for fn in files:
             if not fn.endswith((".java", ".kt", ".sh")):
                 continue
@@ -105,7 +115,7 @@ def main():
 
     # ---- 3. Main.java 声称的 API 版本 == module.prop targetApiVersion ----
     print("[3] API 版本声明（Main.java ↔ module.prop targetApiVersion）")
-    main_src = read("src/com/yz8023/purestart/Main.java")
+    main_src = read(PKG_ROOT + "/Main.java")
     api_claims = set(re.findall(r"API (\d+)", main_src))
     target_api = re.search(r"^targetApiVersion=(\d+)$", prop, re.M)
     if not target_api:
@@ -118,30 +128,34 @@ def main():
     else:
         ok(f"API 版本声明一致（{target_api.group(1)}）")
 
-    # ---- 4. authority 一致性（Manifest Provider authority ↔ Main 拼接） ----
-    print("[4] Provider authority 一致性（Manifest ↔ Main.MODULE_PACKAGE）")
+    # ---- 4. authority 一致性（Manifest ↔ namespace） ----
+    print("[4] Provider authority 一致性（Manifest ↔ build.gradle.kts namespace）")
     m_auth = re.search(r'android:authorities="([^"]+)"', manifest)
-    m_pkg = re.search(r'package="([^"]+)"', manifest)
+    gradle_src = read(GRADLE)
+    namespace = re.search(r'namespace\s*=\s*"([^"]+)"', gradle_src)
+    application_id = re.search(r'applicationId\s*=\s*"([^"]+)"', gradle_src)
     j_pkg = re.search(r'static final String MODULE_PACKAGE = "([^"]+)"', main_src)
-    if not (m_auth and m_pkg and j_pkg):
-        errors += fail("authority/package 解析失败（Manifest 或 Main.MODULE_PACKAGE 缺失）")
+    if not (m_auth and namespace and j_pkg):
+        errors += fail("authority/namespace 解析失败（Manifest、build.gradle.kts 或 Main.MODULE_PACKAGE 缺失）")
     else:
-        if m_pkg.group(1) != j_pkg.group(1):
-            errors += fail(f"Main.MODULE_PACKAGE={j_pkg.group(1)} 与 Manifest package={m_pkg.group(1)} 不一致")
-        elif m_auth.group(1) != j_pkg.group(1) + ".hookstate":
-            errors += fail(f"Manifest authorities={m_auth.group(1)} 与 {j_pkg.group(1)}.hookstate 不一致")
+        if application_id and application_id.group(1) != namespace.group(1):
+            errors += fail(f"applicationId={application_id.group(1)} 与 namespace={namespace.group(1)} 不一致")
+        elif j_pkg.group(1) != namespace.group(1):
+            errors += fail(f"Main.MODULE_PACKAGE={j_pkg.group(1)} 与 namespace={namespace.group(1)} 不一致")
+        elif m_auth.group(1) != namespace.group(1) + ".hookstate":
+            errors += fail(f"Manifest authorities={m_auth.group(1)} 与 {namespace.group(1)}.hookstate 不一致")
         else:
             ok(f"authority 一致（{m_auth.group(1)}）")
 
     # ---- 5. 守门：UI/Hook 隔离 + 密钥在位 ----
     print("[5] UI/Hook 类隔离（UI 进程不得引用 Hook 类）")
     ui_files = []
-    for base in ("compose-ui", "src/com/yz8023/purestart/ui"):
+    for base in (PKG_ROOT + "/ui", PKG_ROOT + "/repository"):
         for dirpath, _, filenames in os.walk(os.path.join(ROOT, base)):
             for filename in filenames:
                 if filename.endswith((".java", ".kt")):
                     ui_files.append(os.path.relpath(os.path.join(dirpath, filename), ROOT))
-    ui_files += ["src/com/yz8023/purestart/" + f for f in
+    ui_files += [PKG_ROOT + "/" + f for f in
                  ("Prefs.java", "HookStateProvider.java", "Targets.java", "IconControlReceiver.java")]
     bad = re.compile(r"Main\.TARGETS|Main\.Reporter|XiaoCanHook\.|UniversalAdHook\.|DexFinder\.|"
                      r"HookGate|io\.github\.libxposed")
@@ -162,7 +176,43 @@ def main():
     else:
         ok("UI 类与 Hook 类完全隔离")
 
-    print("[6] 签名密钥")
+    # ---- 6. v15.2 布局守门 ----
+    print("[6] v15.2 布局：UI/repository 层零 Java，repository 层不依赖 Compose")
+    leftover = []
+    for base in (PKG_ROOT + "/ui", PKG_ROOT + "/repository"):
+        for dirpath, _, filenames in os.walk(os.path.join(ROOT, base)):
+            for filename in filenames:
+                if filename.endswith(".java"):
+                    leftover.append(os.path.relpath(os.path.join(dirpath, filename), ROOT))
+    if leftover:
+        errors += fail("UI/repository 层仍有 Java 文件（第一阶段要求全部迁移到 Kotlin）：")
+        for path in leftover:
+            print("      " + path)
+    else:
+        ok("UI/repository 层零 Java")
+    compose_refs = []
+    for dirpath, _, filenames in os.walk(os.path.join(ROOT, PKG_ROOT, "repository")):
+        for filename in filenames:
+            if not filename.endswith(".kt"):
+                continue
+            path = os.path.relpath(os.path.join(dirpath, filename), ROOT)
+            for i, line in enumerate(read(path).splitlines(), 1):
+                if line.strip().startswith(("import androidx.compose", "import androidx.activity")):
+                    compose_refs.append(f"{path}:{i}: {line.strip()[:70]}")
+    if compose_refs:
+        errors += fail("repository 层不得依赖 Compose（否则 JVM 契约测试无法运行）：")
+        for v in compose_refs:
+            print("      " + v)
+    else:
+        ok("repository 层不依赖 Compose")
+    # 源码布局：AGP 默认布局，不再有自定义 sourceSets 目录映射
+    stray = [d for d in ("src", "compose-ui", "res") if os.path.isdir(os.path.join(ROOT, d))]
+    if stray:
+        errors += fail(f"仓库根目录仍有自定义源码目录 {stray}（应统一到 app/src/main/**）")
+    else:
+        ok("源码统一在 app/src/main/**（AGP 默认布局）")
+
+    print("[7] 签名密钥")
     ks = os.environ.get("KEYSTORE_PATH", "")
     if ks and os.path.exists(os.path.join(ROOT, ks)):
         ok(f"KEYSTORE_PATH={ks} 在位")

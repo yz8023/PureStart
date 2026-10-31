@@ -14,7 +14,7 @@ export KEYSTORE_PATH=/path/to/existing.keystore
 bash build.sh
 ```
 
-产物：`app/build/outputs/apk/release/app-release.apk`（v15.1.2 起 `clean` 后可直接构建，生成文件由 `prepareGeneratedSources` 任务产出）。无 `KEYSTORE_PATH` 时构建拒绝打包；不会生成新 release 密钥。Android 以包名和签名证书判断能否覆盖安装，**务必先核对现有安装版本证书、备份配置**。源码压缩包不包含签名密钥。
+产物：`app/build/outputs/apk/release/app-release.apk`（`clean` 后可直接构建；`BuildInfo` 与 `META-INF/xposed` 由 `prepareGeneratedSources` 任务产出，清单不再是生成物）。无 `KEYSTORE_PATH` 时构建拒绝打包；不会生成新 release 密钥。Android 以包名和签名证书判断能否覆盖安装，**务必先核对现有安装版本证书、备份配置**。源码压缩包不包含签名密钥。
 
 Linux x86_64 可在阅读并接受 Android SDK 许可后执行 `ACCEPT_ANDROID_SDK_LICENSES=1 bash scripts/setup-compose-env.sh` 安装构建依赖，按脚本末尾提示设置环境变量。
 
@@ -25,12 +25,15 @@ python3 scripts/check.py                     # 漂移门禁（含密钥在位）
 python3 tests/check_ui_contract.py           # 玻璃/导航/入口静态契约（含底栏胶囊回归断言）
 python3 tests/check_glass_surfaces.py        # 卡片通透度 + 系统壁纸取法回归断言
 python3 tests/check_backend_unchanged.py     # 需要基线提交 3bb6bbd 的 Git 检出
-python3 tests/test_settings_repository.py   # 含多观察者/UI 键通知回归用例
-python3 tests/test_backup_repository.py # 在线下载测试用 org.json
+python3 tests/test_settings_repository.py   # Kotlin 仓库契约（多观察者 / close / Flow 通道），需要 kotlinc
+python3 tests/test_backup_repository.py     # Kotlin 仓库契约（JSON 格式 / 增量合并 / 异常），需要 kotlinc
 python3 tests/check_apk.py              # 需 ANDROID_HOME，针对默认 release 产物
 ```
 
 `tests/check_backend_unchanged.py` 需要包含基线提交 `3bb6bbd` 的 Git 检出；源码压缩包不含 Git 历史。
+
+两个 `test_*_repository.py` 会用 `kotlinc` 把真实的 Kotlin 源码和极小的 Android 桩一起编译后在纯 JVM 上跑，
+没有 `kotlinc` 时它们会打印 SKIP（可用 `KOTLINC=/path/to/kotlinc` 指定）。一次跑完全部门禁：`bash scripts/verify.sh`。
 
 release 使用 R8 及资源裁剪，并保留模块包内所有类及成员；混淆配置和第三方库的裁剪结果仍需在 LSPosed 真机验证。
 
@@ -38,12 +41,19 @@ release 使用 R8 及资源裁剪，并保留模块包内所有类及成员；�
 
 ## 项目结构
 
-- `compose-ui/`：设置 Activity、Compose 页面、玻璃与导航。
-- `src/com/yz8023/purestart/ui/`：设置与备份适配层。
-- `src/com/yz8023/purestart/`：Prefs、Targets、Provider 和原 Hook 实现。
-- `AndroidManifest.xml`：应用身份、版本、组件和可见包清单的权威来源。
+v15.2 第一阶段重构后，源码统一使用 AGP 默认布局（不再有 `src/` 与 `compose-ui/` 两个自定义源码根）：
+
+- `app/src/main/java/com/yz8023/purestart/`：`Prefs`、`Targets`、Provider 与原 Hook 实现（Java，仍受基线守门保护）。
+- `app/src/main/java/com/yz8023/purestart/ui/`：设置 Activity 与 Compose 页面、玻璃与导航（Kotlin）。
+- `app/src/main/java/com/yz8023/purestart/repository/`：设置读写与配置备份适配层（Kotlin + Flow，不依赖 Compose，可在纯 JVM 上跑契约测试）。
+- `app/src/main/AndroidManifest.xml`：版本号、组件和可见包清单的权威来源（包名权威是 `app/build.gradle.kts` 的 `namespace`）。
+- `app/src/main/res/`：图标与设置页资源。
 - `xposed/`：libxposed 入口与作用域元数据。
 - `third_party/`：参考项目许可说明。
+
+分层规则（`scripts/check.py` 第 5/6 项守门）：`ui` / `repository` 层不得引用 Hook 类，
+`repository` 层不得依赖 Compose；UI 与 repository 层不再保留 Java 文件。
+第一阶段改动清单见 `REFACTOR-v15.2-phase1.md`。
 
 ## 权限说明
 

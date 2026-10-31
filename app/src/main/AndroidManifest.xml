@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    v15.2 第一阶段：版本号（versionCode / versionName）仍然是**唯一权威**，
+    module.prop 由构建任务从这里派生写回（scripts/check.py 第 2 项守门）。
+
+    这里刻意不再写 `package=` 与 `<uses-sdk>`：
+      · 包名 = app/build.gradle.kts 的 namespace / applicationId；
+      · minSdk 26 / targetSdk 34 / compileSdk 36 = app/build.gradle.kts 的 defaultConfig。
+    AGP 8 本身禁止清单里的 package 属性，之前为了让构建跑通，用「配置阶段生成一份
+    去掉 package 的清单副本」来绕过——现在清单直接就是 AGP 的输入，不再需要生成。
+-->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.yz8023.purestart"
     android:versionCode="116"
     android:versionName="15.1.7">
-
-    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <!-- 权限面收窄（按外部分析报告 P2）：
          · 移除 INTERNET：模块自身无任何网络请求（反馈按钮走浏览器 ACTION_VIEW）；
          · 移除 QUERY_ALL_PACKAGES：改用下方 <queries> 精确声明 17 个目标包，

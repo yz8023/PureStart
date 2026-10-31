@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yz8023.purestart.BuildInfo
+import com.yz8023.purestart.repository.BackupRepository
 
 /** Configuration file formats and merge behaviour remain in BackupRepository. */
 @Composable
