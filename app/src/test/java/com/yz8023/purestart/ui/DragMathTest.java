@@ -1,61 +1,88 @@
 package com.yz8023.purestart.ui;
 import org.junit.Test;
 import static org.junit.Assert.*;
+/**
+ * 底栏几何/方向的回归测试（v15.1.7）。
+ *
+ * 约定只有一条：**手指右移 = tab 坐标变大 = 胶囊右移**（对照 yz8023/UI
+ * LiquidBottomTabs 的 `updateValue(targetValue + dragAmount.x / tabWidth)`），
+ * 与 HorizontalPager 在同一方向上（右移 = 回到上一页，左移 = 前往下一页）。
+ */
 public class DragMathTest {
- @Test public void ltrSupportsAllTabsAndBounds() {
-  assertEquals(0, DragMath.nearestTab(DragMath.touchToPosition(0f, 400f, false)));
-  assertEquals(3, DragMath.nearestTab(DragMath.touchToPosition(400f, 400f, false)));
-  assertEquals(2, DragMath.nearestTab(DragMath.touchToPosition(250f, 400f, false)));
-  // v15.1.6 方向约定：手指左移（负 delta）= 槽位增大
-  assertEquals(3f, DragMath.dragBy(0f, -1000f, 400f, false), .001f);
-  assertEquals(0f, DragMath.dragBy(3f, 1000f, 400f, false), .001f);
-  assertEquals(1f, DragMath.dragBy(0f, -100f, 400f, false), .001f);
- }
- @Test public void rtlAndZeroWidthAreSafe() {
-  assertEquals(3, DragMath.nearestTab(DragMath.touchToPosition(0f, 400f, true)));
-  assertEquals(0, DragMath.nearestTab(DragMath.touchToPosition(400f, 400f, true)));
-  // RTL：手指右移（正 delta）= 槽位增大
-  assertEquals(3f, DragMath.dragBy(2f, 100f, 400f, true), .001f);
-  assertEquals(0f, DragMath.touchToPosition(5f, 0f, false), .001f);
-  assertEquals(3f, DragMath.dragBy(10f, 1f, 0f, false), .001f);
+ private static final float W = 400f;      // 底栏总宽
+ private static final float INSET = 8f;    // 两侧内缩合计 8px
+
+ /** 槽宽 = (总宽 - 两侧内缩) / 4，且退化输入安全。 */
+ @Test public void tabWidthMatchesReference() {
+  assertEquals(98f, DragMath.tabWidth(W, INSET / 2f), .001f);   // (400 - 4*2)/4
+  assertEquals(0f, DragMath.tabWidth(0f, 4f), .001f);
+  assertEquals(0f, DragMath.tabWidth(4f, 4f), .001f);           // 内缩吃掉全部宽度
  }
 
- /** 底栏拖拽：位移落在半槽以内吸附原页，越过则翻一页；反向同理。 */
- @Test public void dockSettlesToNearestSlot() {
-  assertEquals(0, DragMath.settleDockPage(0.2f, 0f));
-  assertEquals(1, DragMath.settleDockPage(0.8f, 0f));
-  assertEquals(3, DragMath.settleDockPage(3f, 0f));
-  assertEquals(0, DragMath.settleDockPage(0f, 0f));
+ /** 手指位移 → tab 位移：右正，一槽宽 = 1 个 tab。 */
+ @Test public void dragDirectionMatchesFinger() {
+  assertEquals(1f, DragMath.tabDelta(96f, 96f), .001f);          // 右移一槽
+  assertEquals(-1f, DragMath.tabDelta(-96f, 96f), .001f);        // 左移一槽
+  assertEquals(0f, DragMath.tabDelta(0f, 96f), .001f);
+  assertEquals(0f, DragMath.tabDelta(50f, 0f), .001f);           // 零宽安全
  }
 
- /** 快速甩动：即使位移不足半槽也顺速度方向多走一槽，但不会越界。 */
- @Test public void dockFlingMovesOnePage() {
-  assertEquals(1, DragMath.settleDockPage(0.1f, 5f));
-  assertEquals(0, DragMath.settleDockPage(1f, -5f));
-  assertEquals(3, DragMath.settleDockPage(2.9f, 5f));
-  assertEquals(1, DragMath.settleDockPage(1f, 0f));   // 无速度时停在最近槽位
+ /** 拖动中的胶囊坐标：以按下点为锚，手指往哪走胶囊就往哪走。 */
+ @Test public void capsuleFollowsFinger() {
+  assertEquals(1f, DragMath.dragTab(0f, 96f, 96f), .001f);       // 首页按下右移一槽 → 应用
+  assertEquals(0f, DragMath.dragTab(1f, -96f, 96f), .001f);      // 应用按下左移一槽 → 首页
+  assertEquals(3f, DragMath.dragTab(0f, 900f, 96f), .001f);      // 越界钳位
+  assertEquals(0f, DragMath.dragTab(3f, -900f, 96f), .001f);
+  assertEquals(1.5f, DragMath.dragTab(1f, 48f, 96f), .001f);     // 半个槽
  }
 
- /** v15.1.6：手指左移（负位移）必须往「设置」方向走 = 槽位 +1，与页面滑动同向。 */
- @Test public void dragDirectionMatchesPager() {
-  // 单槽宽度 = 400/4 = 100px；左移 100px → 前进一页
-  assertEquals(1f, DragMath.slotDelta(-100f, 400f, false), .001f);
-  assertEquals(-1f, DragMath.slotDelta(100f, 400f, false), .001f);
-  assertEquals(0f, DragMath.slotDelta(0f, 400f, false), .001f);
-  // 从第 1 页左移一槽 → 2；右移一槽 → 0
-  assertEquals(2, DragMath.settleDockPage(1f + DragMath.slotDelta(-100f, 400f, false), 0f));
-  assertEquals(0, DragMath.settleDockPage(1f + DragMath.slotDelta(100f, 400f, false), 0f));
-  assertEquals(2, DragMath.nearestTab(1f + DragMath.slotDelta(-60f, 400f, false)), 0f);
-  // RTL：手指右移才是前进
-  assertEquals(1f, DragMath.slotDelta(100f, 400f, true), .001f);
-  // 速度方向与位移方向一致（同一条约定）
-  assertEquals(DragMath.slotDelta(500f, 400f, false), DragMath.slotsPerSecond(500f, 400f, false), .001f);
+ /** 胶囊像素位置向右为正，且整体不出底栏。 */
+ @Test public void capsuleOffsetGrowsRightwards() {
+  assertEquals(4f, DragMath.capsuleOffset(0f, 96f, 4f), .001f);
+  assertEquals(100f, DragMath.capsuleOffset(1f, 96f, 4f), .001f);
+  assertEquals(292f, DragMath.capsuleOffset(3f, 96f, 4f), .001f);
+  assertEquals(4f, DragMath.capsuleOffset(-2f, 96f, 4f), .001f);   // 钳位
+  assertEquals(292f, DragMath.capsuleOffset(9f, 96f, 4f), .001f);
  }
 
- @Test public void velocityConversionIsRtlAware() {
-  // v15.1.6 方向约定：右手方向（+400px）表示后退，所以是 -4 槽/秒
-  assertEquals(-4f, DragMath.slotsPerSecond(400f, 400f, false), .001f);
-  assertEquals(4f, DragMath.slotsPerSecond(400f, 400f, true), .001f);
-  assertEquals(0f, DragMath.slotsPerSecond(400f, 0f, false), .001f);
+ /** 松手落点吸附最近槽位；越过半槽才换页。 */
+ @Test public void landingSnapsToNearestSlot() {
+  assertEquals(0, DragMath.landingTab(0.2f, 0f, 96f));
+  assertEquals(1, DragMath.landingTab(0.8f, 0f, 96f));
+  assertEquals(2, DragMath.landingTab(2f, 0f, 96f));
+  assertEquals(3, DragMath.landingTab(3f, 0f, 96f));
+  assertEquals(1, DragMath.landingTab(1f, 0f, 96f));
+ }
+
+ /** 轻扫：位移不足半槽但速度快，也沿**同一方向**多走一槽（不反向）。 */
+ @Test public void flingFollowsSameDirection() {
+  // 右移 20px + 向右快扫（+1200px/s）→ 前进（往右）一槽
+  assertEquals(1, DragMath.landingTab(DragMath.dragTab(0f, 20f, 96f), 1200f, 96f));
+  // 左移 20px + 向左快扫 → 后退一槽
+  assertEquals(0, DragMath.landingTab(DragMath.dragTab(1f, -20f, 96f), -1200f, 96f));
+  // 速度再大也不会越界
+  assertEquals(3, DragMath.landingTab(DragMath.dragTab(2f, 40f, 96f), 9000f, 96f));
+  assertEquals(0, DragMath.landingTab(DragMath.dragTab(1f, -40f, 96f), -9000f, 96f));
+ }
+
+ /** 触摸点 → 该点所在 tab（仅用于点击定位与高亮）。 */
+ @Test public void touchPositionMapsToTab() {
+  assertEquals(0, DragMath.nearestTab(DragMath.tabAtPosition(0f, 96f, 4f)));
+  assertEquals(1, DragMath.nearestTab(DragMath.tabAtPosition(120f, 96f, 4f)));
+  assertEquals(3, DragMath.nearestTab(DragMath.tabAtPosition(399f, 96f, 4f)));
+  assertEquals(0f, DragMath.tabAtPosition(10f, 0f, 0f), .001f);   // 零宽安全
+ }
+
+ /**
+  * v15.1.6 的「手指左移 = 槽位 +1」换算已彻底删除：
+  * 现在手指右移一槽，胶囊像素坐标必须**增大**（而不是减小）。
+  */
+ @Test public void legacyOppositeConventionIsGone() {
+  float before = DragMath.capsuleOffset(1f, 96f, 4f);
+  float after = DragMath.capsuleOffset(DragMath.dragTab(1f, 96f, 96f), 96f, 4f);
+  assertTrue("右移后胶囊必须更靠右", after > before);
+  assertEquals(96f, after - before, .001f);
+  float back = DragMath.capsuleOffset(DragMath.dragTab(1f, -96f, 96f), 96f, 4f);
+  assertTrue("左移后胶囊必须更靠左", back < before);
  }
 }

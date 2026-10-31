@@ -207,8 +207,7 @@ fun Modifier.glassPanel(backdrop: Backdrop, radius: Int = 22, navigation: Boolea
     // 所以这里也必须是不透明的表面色——之前把「普通模式」做成了半透明玻璃降级，
     // 于是浅色主题下既没有实心卡片的干净观感，又留下发白的半透明块。
     if (appearance.plain) {
-        val solid = if (appearance.dark) MaterialTheme.colorScheme.surface
-                    else MaterialTheme.colorScheme.surface
+        val solid = surface
         return this.shadow(1.dp, shape, clip = false)
             .clip(shape)
             .background(solid)
@@ -298,16 +297,36 @@ fun Modifier.sceneGlassPanel(radius: Int = 22): Modifier {
            else background(Color.Transparent, RoundedCornerShape(radius.dp))
 }
 
-/** Visible transparent glass container: unlike the old grey slab, its fill is
- * a low-alpha light tint over the real page backdrop, with a distinct rim. */
+/**
+ * 底栏容器（对照 yz8023/UI `LiquidBottomTabs` 的第 1 层）。
+ *
+ * 只做三件事：采样底层做磨砂/折射、给一个**柔和**高光、叠一层极淡 surface 染色。
+ *
+ * v15.1.7 修正：
+ *  - highlight 从 `alpha = .70`（浅色主题）降到参考实现的 `Highlight.Default.alpha = .75`
+ *    但宽度固定 1dp 且用 Default 风格（柔和高光），不再是一圈白边；
+ *  - 普通模式（`appearance.plain`）走**实心**分支：surface 色 + 阴影，完全不采样背景，
+ *    所以普通模式与玻璃模式的底栏外观是明显不同的两套。
+ */
 @Composable
 fun Modifier.dockContainer(backdrop: Backdrop): Modifier {
     val appearance = LocalAppearance.current
     val shape = RoundedCornerShape(50)
+    val surface = MaterialTheme.colorScheme.surface
+
+    // 普通模式：实心 Material 底栏（对照 VisualMode.Normal / Md3 —— 实心面 + 阴影）。
+    if (appearance.plain) {
+        return this.shadow(3.dp, shape, clip = false)
+            .clip(shape)
+            .background(surface)
+            .border(1.dp, if (appearance.dark) Color.White.copy(alpha = .06f)
+                           else Color.Black.copy(alpha = .05f), shape)
+    }
+
     if (!appearance.enabled || Build.VERSION.SDK_INT < 31) {
-        val tint = if (appearance.dark) Color.White.copy(alpha = .12f) else Color.White.copy(alpha = .36f)
+        val tint = if (appearance.dark) Color.White.copy(alpha = .10f) else Color.White.copy(alpha = .30f)
         return this.shadow(3.dp, shape, clip = false).clip(shape).background(tint)
-            .border(1.dp, Color.White.copy(alpha = if (appearance.dark) .22f else .62f), shape)
+            .border(1.dp, Color.White.copy(alpha = if (appearance.dark) .14f else .24f), shape)
     }
     return drawBackdrop(backdrop = backdrop, shape = { shape }, effects = {
         if (appearance.vibrant) vibrancy()
@@ -315,31 +334,57 @@ fun Modifier.dockContainer(backdrop: Backdrop): Modifier {
         lens(refractionHeight = maxOf(8, appearance.height).dp.toPx(),
             refractionAmount = maxOf(10, appearance.amount).dp.toPx(),
             chromaticAberration = appearance.chromatic)
-    }, highlight = { Highlight(width = 1.dp, alpha = if (appearance.dark) .42f else .70f) },
+    },
+        // 参考实现的容器高光是 Highlight.Default（柔和、1dp 宽、不加 blur）——
+        // 之前用的 .70 alpha 硬白边在浅色壁纸上就是那条「白框」。
+        highlight = { Highlight.Default.copy(alpha = .75f) },
         shadow = { Shadow(radius = 10.dp, color = Color.Black, alpha = if (appearance.dark) .14f else .08f) },
-        onDrawSurface = { drawRect(Color.White.copy(alpha = if (appearance.dark) .055f else .18f)) })
+        // 参考实现：containerColor = surfaceContainer.copy(alpha = .10 + opacity * .55)
+        onDrawSurface = {
+            // 参考实现 containerColor = surfaceContainer.copy(alpha = .10f + opacity * .55f)；
+            // 这里取 .10 + opacity * .30（本项目 opacity 默认 .55），观感等同、更保守。
+            drawRect(surface.copy(alpha = .10f + appearance.opacity.coerceIn(0f, 1f) * .30f))
+        })
 }
 
 /**
- * 移动的底栏玻璃胶囊（不带底板，只有这一颗胶囊）。
+ * 移动的胶囊（对照 yz8023/UI `LiquidBottomTabs` 的第 3 层）。
  *
- * 注意：这颗胶囊必须在 Dock 图标**之后**绘制（v15.1.3 起由 PureStartShell
- * 放在图标层之上）——玻璃需要一个可见的填充/折射，画在图标上方才有
- * 「图标泡在液体玻璃里」的观感；画在图标下方又会把图标糊成一团。
+ * 参考实现的按压行为很关键，v15.1.7 照抄：
+ *  - 平时：几乎全透明（`Color.Black/White copy alpha = .1f`），只有一点点色调，
+ *    所以**图标位置的那层胶囊不会把图标糊掉**；
+ *  - 按压：highlight / innerShadow / lens 增强，但 surface 染色反而按
+ *    `1f - progress` **变淡** —— 越按越透，图标透过玻璃看得更清楚（参考实现原文：
+ *    `drawRect(..., alpha = 1f - progress)`）。
+ *  - 边框也只有按压时才出现（`Highlight(alpha = pressProgress)`）。
+ *
+ * 之前这里一直用「0.12~0.18 的白色填充 + 0.35~0.85 的硬白描边 + shadow」，
+ * 那正是用户看到的「选中时把图标盖住 + 糊成一团 + 一圈白边」。
+ *
+ * 普通模式：不采样背景，退回一层很淡的同色面（`onSurface.copy(alpha ~.10)`），
+ * 与参考实现 OShin/Md3 的选中底一致。
  */
 @Composable
 fun Modifier.dockLens(backdrop: Backdrop, press: Float): Modifier {
     val appearance = LocalAppearance.current
     val shape = RoundedCornerShape(50)
-    val surface = MaterialTheme.colorScheme.surface
     val p = press.coerceIn(0f, 1f)
+    val isLight = !appearance.dark
+
+    if (appearance.plain) {
+        // 普通模式：实心主题色淡层，不做任何模糊/折射。
+        return this.clip(shape).background(
+            MaterialTheme.colorScheme.primary.copy(alpha = if (isLight) .12f else .20f))
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .28f), shape)
+    }
+
     if (!appearance.enabled || Build.VERSION.SDK_INT < 31) {
-        // 旧系统没有 RenderEffect：用低透明度的同色雾面 + 描边，
-        // 既能看清选中态，又不会把图标盖住（原实现 .68 白底会盖住图标）。
-        val veil = if (appearance.dark) Color.White else surface
-        return this.shadow(4.dp + 6.dp * p, shape, clip = false).clip(shape)
-            .background(veil.copy(alpha = (if (appearance.dark) .10f else .22f) + .10f * p))
-            .border(1.dp, Color.White.copy(alpha = .30f + .30f * p), shape)
+        // 无 RenderEffect 的降级：一层很淡的同色面 + 淡描边（绝不盖住图标）。
+        return this.clip(shape)
+            .background(if (appearance.dark) Color.White.copy(alpha = .07f)
+                        else MaterialTheme.colorScheme.primary.copy(alpha = .08f))
+            .border(1.dp, if (appearance.dark) Color.White.copy(alpha = .16f)
+                           else MaterialTheme.colorScheme.primary.copy(alpha = .16f), shape)
     }
     return drawBackdrop(backdrop = backdrop, shape = { shape }, effects = {
         if (appearance.vibrant) vibrancy()
@@ -347,12 +392,13 @@ fun Modifier.dockLens(backdrop: Backdrop, press: Float): Modifier {
         lens(refractionHeight = (maxOf(8, appearance.height) + 10f * p).dp.toPx(),
             refractionAmount = (maxOf(10, appearance.amount) + 14f * p).dp.toPx(),
             depthEffect = true, chromaticAberration = appearance.chromatic)
-    }, highlight = { Highlight(width = 1.5.dp, alpha = (.35f + p * .45f).coerceAtMost(.85f)) },
-        // 按压时投影变大：胶囊确实「浮」在底栏之上，而不是陷在容器里。
-        shadow = { Shadow(radius = 10.dp + 6.dp * p, color = Color.Black,
-            alpha = (if (appearance.dark) .22f else .12f) + .10f * p) },
+    },
+        highlight = { Highlight(width = 1.dp, alpha = p) },
+        shadow = null,
         onDrawSurface = {
-            // 玻璃里的染色很淡（原 .20 白底 + 4dp 模糊会把图标糊掉）。
-            drawRect(surface.copy(alpha = (if (appearance.dark) .10f else .12f) + .06f * p))
+            // 参考实现：底色只有 10%，且按压时按 1 - progress 变淡。
+            drawRect((if (appearance.dark) Color.White else Color.Black).copy(alpha = .10f),
+                alpha = 1f - p)
+            drawRect(Color.Black.copy(alpha = .03f * p))
         })
 }

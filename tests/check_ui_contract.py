@@ -12,13 +12,11 @@ assert any(c.get(a+'name') == 'android.intent.category.LAUNCHER' for c in alias.
 assert any(c.get(a+'name') == 'de.robv.android.xposed.category.MODULE_SETTINGS' for c in activity.iter('category'))
 assert any(r.get(a+'name') == '.IconControlReceiver' for r in app.findall('receiver'))
 shell = (root / 'compose-ui/com/yz8023/purestart/ui/PureStartShell.kt').read_text()
-# v15.1.2：页面可直接左右滑动（Pager），底栏胶囊必须画在 dockContainer 之外，
-# 否则 drawBackdrop 会把子内容按胶囊形状裁剪（「胶囊被底栏框住」的老问题）。
+# v15.1.7：底栏结构与 yz8023/UI 的 LiquidBottomTabs 对齐（容器 / 图标层 / 胶囊三层），
+# 胶囊画在 dockContainer 之外（否则被 drawBackdrop 裁剪），且在图标层之后。
 assert '.dockContainer(dockBackdrop)' in shell and '.dockLens(lensBackdrop, pressProgress)' in shell
 assert 'HorizontalPager(' in shell and 'rememberPagerState(pageCount = { 4 })' in shell
-assert 'currentPageOffsetFraction' in shell
-# 胶囊必须在 dockContainer 之外绘制（否则被底栏裁剪），
-# 又必须在图标 Row 之后绘制（否则白色填充盖住图标）。
+assert 'settledPage' in shell
 def index_of(text, needle, start=0):
     pos = text.find(needle, start)
     assert pos >= 0, '找不到 ' + needle
@@ -26,15 +24,14 @@ def index_of(text, needle, start=0):
 
 assert index_of(shell, '.dockLens(') > index_of(shell, '.dockContainer(dockBackdrop)'), '胶囊必须在底栏容器之外绘制'
 
-# 胶囊调用点在图标层之后；DockItems 的定义（带 RowScope.）在文件末尾，不能作为起点。
-dock_row = 0
-icon_calls = [i for i in range(len(shell)) if shell.startswith('DockItems(pagerState.currentPage, badge, interactions, true)', i)]
-assert icon_calls, '找不到底栏图标层'
-assert index_of(shell, '.dockLens(', dock_row) > icon_calls[-1], '玻璃胶囊必须在图标层之后绘制，否则会盖住图标'
+# 图标层（可见的那一份）必须在胶囊之前；透明采样副本在容器内部。
+icon_calls = [i for i in range(len(shell)) if shell.startswith('DockItems(', i)]
+assert len(icon_calls) >= 2, '需要「可见图标层」与「胶囊采样副本」两份 DockItems'
+assert index_of(shell, '.dockLens(') > icon_calls[0], '玻璃胶囊必须在图标层之后绘制，否则会盖住图标'
 assert 'GlassSceneRoot {' in shell and 'currentSceneBackdrop()' in shell, '背景层必须由根节点统一提供'
-assert 'settleDockPage(' in shell and 'animateScrollToPage(' in shell
+assert 'landingTab(' in shell and 'animateScrollToPage(' in shell
 math = (root / 'compose-ui/com/yz8023/purestart/ui/DragMath.kt').read_text()
-assert 'fun settleDockPage(' in math and 'fun slotsPerSecond(' in math
+assert 'fun landingTab(' in math and 'fun tabDelta(' in math
 home = (root / 'compose-ui/com/yz8023/purestart/ui/HomeScreen.kt').read_text()
 assert 'PureStart/issues' in home and '隐藏桌面图标' in home
 settings = (root / 'compose-ui/com/yz8023/purestart/ui/SettingsScreen.kt').read_text()

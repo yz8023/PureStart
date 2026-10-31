@@ -117,3 +117,29 @@
   统一为 `DragMath.slotDelta()`：手指左移 = 槽位 +1 = 下一页，位移与速度共用同一约定；
   `DragMathTest` 新增方向一致性用例。
 - 仍未在真机验收。
+
+## v15.1.7 底栏三层重做（照 `LiquidBottomTabs` 逐行对照）
+
+用户反馈两件事：**普通模式与玻璃模式的 dock 完全没区别**、**胶囊方向与实际滑动相反且把图标盖住/糊住**。
+逐行对照 `android/.../ui/components/LiquidBottomTabs.kt` 后，确认是**几何模型**而非数值问题：
+
+- **方向**：参考实现只有一条约定 ——
+  `onDrag { updateValue(targetValue + dragAmount.x / tabWidth) }` 与
+  `translationX = value * tabWidthPx`，即「手指右移 = tab 变大 = 胶囊右移」，一槽宽 = 1 个 tab。
+  v15.1.2~15.1.5 用了 `travelled / tabWidth` 却没定正负；v15.1.6 为了「和页面一致」
+  改成「手指左移 = 槽位 +1」，但胶囊仍按 `槽位 × 槽宽` 从左边算起 —— 于是**手指左移、胶囊右移**。
+  根因：把「页面滚动的相对位移」硬套到「胶囊的绝对坐标」上。
+  现在只保留参考实现这一套：`DragMath.tabDelta / dragTab / capsuleOffset`（全程右正），
+  删除 `slotDelta / settleDockPage / slotsPerSecond`，`DragMathTest` 全部改写为同向断言。
+- **胶囊盖住/糊住图标**：参考实现的按压行为是
+  `onDrawSurface = { drawRect(色.copy(alpha = .10f), alpha = 1f - progress) }` ——
+  **底色只有 10%，而且按压时按 1−progress 变淡**；`Highlight(width = 1.dp, alpha = pressProgress)`
+  也只在按压时出现。本项目此前是「0.12~0.18 白色填充 + 0.35~0.85 硬白描边 + shadow + 4dp 模糊」，
+  那就是「选中即糊、还带一圈白边」的来源。现在底色/高光/阴影全部对齐参考实现，
+  并且补上参考实现的另一半：**胶囊正下方那一格 tab 淡出（alpha 0）**
+  （`LocalLiquidBottomTabOriginalAlpha`），其余图标始终可见。
+- **普通模式看不出区别**：以前只有卡片（`glassPanel`）走了实心分支，底栏容器与胶囊没有。
+  现在 `dockContainer` 与 `dockLens` 都有 `if (appearance.plain)` 分支：
+  实心 `surface` 底栏 + 阴影 + 极淡内描边，胶囊用 `primary` 淡层，不采样背景、不模糊不折射 ——
+  与玻璃模式的外观差异是明确的。静态测试新增三条断言锁住这三处。
+- 版本 116 / 15.1.7；`DragMathTest` 8 例通过。仍未真机验收（方向手感需实机确认）。
