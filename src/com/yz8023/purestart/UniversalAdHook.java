@@ -79,13 +79,14 @@ public final class UniversalAdHook {
                             }
                             // 启动器：通用开屏跳过（自动点「跳过」+ DexFinder 方法触发）
                             if (launcher && gate.on("splash")) {
-                                scheduleSkipScan(act);
+                                scheduleSkipScan(act, gate);
                             }
                         }
                     }
                     return chain.proceed();
                 }
             });
+            reporter.ok("Activity.onCreate@" + pkg);
         } catch (Throwable t) {
             reporter.fail("Activity.onCreate@" + pkg, t);
         }
@@ -95,7 +96,9 @@ public final class UniversalAdHook {
             xposed.hook(addViewMethod).intercept(new XposedInterface.Hooker() {
                 @Override
                 public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                    if (gate.on("enabled") && gate.on("feed")) {
+                    // addView 是所有界面都会走的热路径：开关判定按 500ms 节流缓存，
+                    // 避免每个 View 都触发一次跨进程配置查询（原实现每 View 查两次）。
+                    if (adViewBlocking(gate)) {
                         java.util.List<Object> args = chain.getArgs();
                         if (args != null && !args.isEmpty() && args.get(0) instanceof View) {
                             View child = (View) args.get(0);
@@ -109,6 +112,7 @@ public final class UniversalAdHook {
                     return chain.proceed();
                 }
             });
+            reporter.ok("addView@" + pkg);
         } catch (Throwable t) {
             reporter.fail("addView@" + pkg, t);
         }
@@ -132,10 +136,23 @@ public final class UniversalAdHook {
                     return chain.proceed();
                 }
             });
+            reporter.ok("Dialog.show@" + pkg);
         } catch (Throwable t) {
             reporter.fail("Dialog.show@" + pkg, t);
         }
-        reporter.ok("universal-engine@" + pkg);   // 三大通用引擎安装完成
+    }
+
+    /** addView 热路径闸门：开关结果缓存 500ms（配置查询本身已有 2s 缓存）。 */
+    private static long lastGateCheck;
+    private static boolean lastGateOpen;
+
+    private static boolean adViewBlocking(HookGate gate) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastGateCheck >= 500L) {
+            lastGateCheck = now;
+            lastGateOpen = gate.on("enabled") && gate.on("feed");
+        }
+        return lastGateOpen;
     }
 
     // ------------------------------------------------------------------
@@ -157,14 +174,14 @@ public final class UniversalAdHook {
     // 通用开屏跳过：多轮扫描视图树，自动点击「跳过」
     // ------------------------------------------------------------------
 
-    private static void scheduleSkipScan(final Activity act) {
+    private static void scheduleSkipScan(final Activity act, final HookGate gate) {
         int[] delays = {350, 800, 1300, 1900};
         for (final int delay : delays) {
             act.getWindow().getDecorView().postDelayed(new Runnable() {
                 @Override
                 public void run() {
                     try {
-                        if (act.isFinishing() || act.isDestroyed()) return;
+                        if (act.isFinishing() || act.isDestroyed() || !gate.on("enabled") || !gate.on("splash")) return;
                         View root = act.getWindow().getDecorView();
                         View hit = findSkipView(root);
                         if (hit != null) {
@@ -173,7 +190,7 @@ public final class UniversalAdHook {
                             return;   // 点到即止
                         }
                         // ② 按钮没点到（可能倒计时未结束/不可点）：DexFinder 特征兜底
-                        tryDexFinderSkip(root);
+                        if (gate.on("dexfinder")) tryDexFinderSkip(root);
                     } catch (Throwable ignored) {}   // 纯防御：跳过扫描尽力而为，失败仅多显示一帧开屏
                 }
             }, delay);

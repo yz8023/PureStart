@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.yz8023.purestart"
-    android:versionCode="109"
-    android:versionName="15.1.0">
+    android:versionCode="111"
+    android:versionName="15.1.2">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <!-- 权限面收窄（按外部分析报告 P2）：
@@ -36,13 +36,19 @@
         android:description="@string/moddesc"
         android:forceQueryable="true">
 
-        <!-- exported=true（无 intent-filter）：隐藏图标后 LSPosed/adb 显式意图仍可进入，
-             这是 v15.0.6 锁死问题的兜底通道（攻击面取舍见 README） -->
+        <!-- The settings Activity stays available separately from the launcher alias.
+             MODULE_SETTINGS follows the WeKit discovery pattern for Xposed managers. -->
         <activity
             android:name=".SettingsActivity"
             android:exported="true"
             android:label="PureStart"
-            android:theme="@style/AppTheme" />
+            android:theme="@style/AppTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <action android:name="android.intent.action.APPLICATION_PREFERENCES" />
+                <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
+            </intent-filter>
+        </activity>
 
         <!-- 桌面图标恢复通道：隐藏图标后 adb 广播可恢复（IconControlReceiver） -->
         <receiver

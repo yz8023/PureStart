@@ -1,3 +1,5 @@
+> 注意：本指南主要描述重构前的 Java/View UI，界面相关文件与构建方式已过期；当前以 README.md 和 COMPOSE_MIGRATION.md 为准。Hook 部分修改前请核对现行源码。
+
 # PureStart (ModKit Edition) — 开发指南
 
 > 适用：LSPosed / FPA（fun.fpa）/ LSPatch 全兼容（libxposed API 100+，纯 Java，无 androidx、无 Gradle）。

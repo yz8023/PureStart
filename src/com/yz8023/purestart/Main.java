@@ -1,5 +1,7 @@
 package com.yz8023.purestart;
 
+import android.app.Application;
+import android.app.Instrumentation;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -38,7 +40,7 @@ public class Main extends XposedModule implements HookGate {
     private static final String STATE_AUTHORITY = MODULE_PACKAGE + ".hookstate";
     private static final Uri STATE_URI = Uri.parse("content://" + STATE_AUTHORITY);
     private static final Uri SELFCHECK_URI = Uri.parse("content://" + STATE_AUTHORITY + "/selfcheck");
-    private ContentResolver resolver;
+    private volatile ContentResolver resolver;
     private String currentPkg;
     private static volatile String cachedModuleVersion;
 
@@ -56,7 +58,7 @@ public class Main extends XposedModule implements HookGate {
         } catch (Throwable t) {
             Log.w(TAG, "moduleVersion unavailable: " + t);
         }
-        if (v == null) v = "unknown";
+        if (v == null) return "unknown"; // Retry once the application context exists.
         cachedModuleVersion = v;
         return v;
     }
@@ -185,30 +187,26 @@ public class Main extends XposedModule implements HookGate {
         void republish();                             // 延迟安装完成后重报
     }
 
-    private static class InstallReport implements Reporter {
+    private class InstallReport implements Reporter {
         private final String pkg;
-        private final ContentResolver resolver;
         private int ok, miss;
         private final StringBuilder fails = new StringBuilder();
 
-        InstallReport(String pkg, ContentResolver resolver) {
-            this.pkg = pkg;
-            this.resolver = resolver;
-        }
+        InstallReport(String pkg) { this.pkg = pkg; }
 
-        @Override public void ok(String what) { ok++; }
+        @Override public synchronized void ok(String what) { ok++; }
 
-        @Override public void miss(String what) {
+        @Override public synchronized void miss(String what) {
             miss++;
             Log.i(TAG, "[" + pkg + "] optional target absent: " + what);
         }
 
-        @Override public void fail(String what, Throwable t) {
+        @Override public synchronized void fail(String what, Throwable t) {
             fails.append(what).append(" (").append(t.getClass().getSimpleName()).append("); ");
             Log.e(TAG, "[" + pkg + "] hook install FAILED: " + what + " — " + t);
         }
 
-        @Override public void republish() {
+        @Override public synchronized void republish() {
             try {
                 ContentValues cv = new ContentValues();
                 cv.put("pkg", pkg);
@@ -217,8 +215,11 @@ public class Main extends XposedModule implements HookGate {
                 cv.put("fails", fails.length() > 300 ? fails.substring(0, 300) : fails.toString());
                 cv.put("version", moduleVersion());
                 cv.put("at", System.currentTimeMillis());
-                if (resolver != null) {
-                    resolver.insert(SELFCHECK_URI, cv);
+                ContentResolver target = resolver();
+                if (target != null) {
+                    target.insert(SELFCHECK_URI, cv);
+                } else {
+                    Log.i(TAG, "selfcheck pending until application context is available: " + pkg);
                 }
             } catch (Throwable t) {
                 Log.w(TAG, "selfcheck report dropped: " + t);
@@ -236,7 +237,8 @@ public class Main extends XposedModule implements HookGate {
         for (String[] t : TARGETS) {
             if (!t[0].equals(pkg)) continue;
             currentPkg = pkg;
-            report = new InstallReport(pkg, resolver());
+            report = new InstallReport(pkg);
+            installReportContextCapture(report);
             log(Log.INFO, TAG, "Loaded into " + pkg + " (module v" + moduleVersion()
                     + ", API 102)");
 
@@ -244,7 +246,7 @@ public class Main extends XposedModule implements HookGate {
                 // 小蚕为加固壳应用：先挂三个生命周期重试点（内部设 reporter，主类未命中有留痕），
                 // 再尝试直接安装；类未解密则由生命周期点在壳解密后补装
                 try {
-                    XiaoCanHook.hookLifecycleForDeferredInstall(this, report);
+                    XiaoCanHook.hookLifecycleForDeferredInstall(this, this, report);
                     if (XiaoCanHook.canLoadTargetClasses(cl)) {
                         XiaoCanHook.install(this, cl, this, report);
                     } else {
@@ -278,16 +280,44 @@ public class Main extends XposedModule implements HookGate {
         currentPkg = pkg;
         ClassLoader cl = param.getClassLoader();
         log(Log.INFO, TAG, "Package ready: " + pkg);
-        if (report == null) report = new InstallReport(pkg, resolver());
+        if (report == null) {
+            report = new InstallReport(pkg);
+            installReportContextCapture(report);
+        }
         try {
             if (XiaoCanHook.canLoadTargetClasses(cl)) {
                 XiaoCanHook.install(this, cl, this, report);
             } else {
-                XiaoCanHook.hookLifecycleForDeferredInstall(this, report);
+                XiaoCanHook.hookLifecycleForDeferredInstall(this, this, report);
             }
         } catch (Throwable e) {
             report.fail("XiaoCanHook.ready-install", e);
             log(Log.ERROR, TAG, "XiaoCan ready-install failed", e);
+        }
+        report.republish();
+    }
+
+    /** PackageLoaded may run before ActivityThread.currentApplication exists.
+     * Capture a real application context later and republish the pending report.
+     * Reporting is best-effort and must never prevent the host from starting. */
+    private void installReportContextCapture(final InstallReport pending) {
+        try {
+            java.lang.reflect.Method method = Instrumentation.class.getDeclaredMethod(
+                    "callApplicationOnCreate", Application.class);
+            hook(method).intercept(chain -> {
+                try {
+                    Object app = chain.getArgs().get(0);
+                    if (app instanceof Context) {
+                        resolver = ((Context) app).getContentResolver();
+                        pending.republish();
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "selfcheck context capture failed: " + t);
+                }
+                return chain.proceed();
+            });
+        } catch (Throwable t) {
+            pending.fail("selfcheck context capture", t);
         }
     }
 }

@@ -3,7 +3,7 @@
 
 检查项（提示词 P1-1 规定的三项 + 两项守门）：
   1. 目标 App 清单三处一致：Targets.java 的 LIST / xposed/scope.list /
-     SettingsActivity 的 APP_DESC —— 三个包名集合两两 diff，有差即报错并指出差在哪两个文件之间；
+     AndroidManifest.xml 的 queries —— 三个包名集合两两 diff，有差即报错并指出差在哪两个文件之间；
   2. 版本号一致性：除 AndroidManifest.xml（唯一权威）外，任何源文件出现字面版本号即报错；
      xposed/module.prop 的 version/versionCode 必须与 Manifest 一致（build.sh 派生写回）；
   3. Main.java 声称的 API 版本必须与 xposed/module.prop 的 targetApiVersion 一致；
@@ -38,31 +38,28 @@ def ok(msg):
 def main():
     errors = 0
 
-    # ---- 1. 目标清单三处一致（两两 diff，指明文件对） ----
-    print("[1] 目标应用清单（Targets.java / scope.list / APP_DESC）")
+    # Targets is the sole UI description source. Verify scope and package visibility
+    # against it; this replaces the removed duplicate APP_DESC, not the drift gate.
+    print("[1] 目标应用清单（Targets.java / scope.list / Manifest queries）")
     targets = [t for t in re.findall(r'\{\s*"([A-Za-z0-9_.]+)",\s*"', read("src/com/yz8023/purestart/Targets.java"))
                if "." in t and not t.startswith("com.example")]
-    scope = [l.strip() for l in read("xposed/scope.list").splitlines()
-             if l.strip() and not l.startswith("#")]
-    app_desc = []
-    for line in read("src/com/yz8023/purestart/SettingsActivity.java").splitlines():
-        ls = line.strip()
-        if ls.startswith("//"):
-            continue
-        m = re.match(r'APP_DESC\.put\("([A-Za-z0-9_.]+)"', ls)
-        if m:
-            app_desc.append(m.group(1))
-    pairs = [("Targets.java", set(targets), "scope.list", set(scope)),
-             ("Targets.java", set(targets), "SettingsActivity(APP_DESC)", set(app_desc)),
-             ("scope.list", set(scope), "SettingsActivity(APP_DESC)", set(app_desc))]
-    consistent = True
-    for a, sa, b, sb in pairs:
-        if sa != sb:
-            consistent = False
-            errors += fail(f"{a} 与 {b} 不一致：仅 {a} 有 {sorted(sa - sb)}，仅 {b} 有 {sorted(sb - sb & sa | (sb - sa))}")
+    scope = [line.strip() for line in read("xposed/scope.list").splitlines()
+             if line.strip() and not line.strip().startswith("#")]
+    import xml.etree.ElementTree as ET
+    manifest_root = ET.fromstring(read("AndroidManifest.xml"))
+    android_name = "{http://schemas.android.com/apk/res/android}name"
+    queries = [node.attrib.get(android_name, "") for node in manifest_root.findall("./queries/package")]
+    lists = [("Targets.java", targets), ("scope.list", scope), ("Manifest queries", queries)]
     if not targets:
-        errors += fail("未能从 Targets.java 解析出任何包名（解析式失效？）")
-    if consistent and targets:
+        errors += fail("未能解析目标应用清单")
+    for name, entries in lists:
+        if len(entries) != len(set(entries)):
+            errors += fail(f"{name} 存在重复包名")
+    for i, (a, sa) in enumerate(lists):
+        for b, sb in lists[i + 1:]:
+            if set(sa) != set(sb):
+                errors += fail(f"{a} 与 {b} 不一致：仅 {a} 有 {sorted(set(sa)-set(sb))}，仅 {b} 有 {sorted(set(sb)-set(sa))}")
+    if targets and all(set(targets) == set(entries) for _, entries in lists):
         ok(f"三处一致（{len(set(targets))} 个目标包）")
 
     # ---- 2. 版本号：Manifest 唯一权威 ----
@@ -88,7 +85,7 @@ def main():
     hits = []
     for dirpath, _, files in os.walk(os.path.join(ROOT, "src")):
         for fn in files:
-            if not fn.endswith((".java", ".sh")):
+            if not fn.endswith((".java", ".kt", ".sh")):
                 continue
             fp = os.path.relpath(os.path.join(dirpath, fn), ROOT)
             for i, line in enumerate(read(fp).splitlines(), 1):
@@ -138,17 +135,18 @@ def main():
 
     # ---- 5. 守门：UI/Hook 隔离 + 密钥在位 ----
     print("[5] UI/Hook 类隔离（UI 进程不得引用 Hook 类）")
-    ui_files = ["SettingsActivity.java", "GlassCardView.java", "Prefs.java", "LiquidGlass.java",
-                "ThemeDialog.java", "AppDetailDialog.java", "HoldShieldView.java",
-                "HookStateProvider.java", "Targets.java", "IconControlReceiver.java",
-                # P1-2 拆出的 UI 类（同属 UI 进程，必须同样受隔离门约束）
-                "GlassEngine.java", "HomePage.java", "AppsPage.java",
-                "ExtensionPage.java", "SettingsCards.java", "LiquidBar.java"]
+    ui_files = []
+    for base in ("compose-ui", "src/com/yz8023/purestart/ui"):
+        for dirpath, _, filenames in os.walk(os.path.join(ROOT, base)):
+            for filename in filenames:
+                if filename.endswith((".java", ".kt")):
+                    ui_files.append(os.path.relpath(os.path.join(dirpath, filename), ROOT))
+    ui_files += ["src/com/yz8023/purestart/" + f for f in
+                 ("Prefs.java", "HookStateProvider.java", "Targets.java", "IconControlReceiver.java")]
     bad = re.compile(r"Main\.TARGETS|Main\.Reporter|XiaoCanHook\.|UniversalAdHook\.|DexFinder\.|"
                      r"HookGate|io\.github\.libxposed")
     violations = []
-    for uf in ui_files:
-        path = "src/com/yz8023/purestart/" + uf
+    for path in ui_files:
         if not os.path.exists(os.path.join(ROOT, path)):
             continue
         for i, line in enumerate(read(path).splitlines(), 1):

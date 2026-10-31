@@ -32,6 +32,8 @@ public final class Prefs {
     public static final String KEY_LIQUID_BLUR = "set_liquid_blur";
     public static final String KEY_APP_BADGE = "set_app_badge";
     public static final String KEY_AUTO_UPDATE = "set_auto_update";
+    /** 页面左右滑动开关（v15.1.2 新增；默认开） */
+    public static final String KEY_PAGE_SWIPE = "set_page_swipe";
     public static final String KEY_DESKTOP_ICON = "set_desktop_icon";
 
     public static final String KEY_GLASS_OPACITY = "glass_opacity";
@@ -81,6 +83,7 @@ public final class Prefs {
     public static boolean liquidBlurEnabled(Context c) { return sp(c).getBoolean(KEY_LIQUID_BLUR, true); }
     public static boolean appBadgeEnabled(Context c) { return sp(c).getBoolean(KEY_APP_BADGE, true); }
     public static boolean autoUpdateEnabled(Context c) { return sp(c).getBoolean(KEY_AUTO_UPDATE, true); }
+    public static boolean pageSwipeEnabled(Context c) { return sp(c).getBoolean(KEY_PAGE_SWIPE, true); }
     public static void setDesktopIconPref(Context c, boolean v) {
         sp(c).edit().putBoolean(KEY_DESKTOP_ICON, v).apply();
     }

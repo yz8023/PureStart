@@ -1,3 +1,7 @@
 build/
+app/build/
 *.apk
 !debug.keystore
+.gradle/
+local.properties
+.kotlin/

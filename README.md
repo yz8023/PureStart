@@ -1,74 +1,46 @@
-# PureStart (ModKit Edition)
+# PureStart · Compose 迁移版
 
-LSPosed/libxposed 去广告模块（纯 Java + Android View，无 Gradle）：悬浮底栏四页签设置界面、
-小蚕惠生活净化（忠实移植 [GeniusQA/XiaoCan](https://github.com/GeniusQA/XiaoCan)）、
-17 个国民级 App 的通用去广告引擎、磨砂玻璃（View 近似）界面。
+LSPosed/libxposed 模块。设置入口使用 Kotlin + Compose，液态玻璃参考 [yz8023/ui](https://github.com/yz8023/ui) 的 backdrop / lens 方案；Hook 与原配置存储沿用 Java 实现。最低 Android 8.0（API 26）。不同系统版本和设备可能对模糊、折射等效果降级。
 
 ## 构建
 
-```bash
-# 前置：JDK 17；Android SDK（platforms/android-35 + build-tools/34.0.0）
-export ANDROID_HOME=/path/to/sdk
+需要 JDK 17、Android SDK platform 36、Gradle Wrapper 可联网下载依赖，以及原有签名密钥：
+
+```sh
 export JAVA_HOME=/path/to/jdk17
-
-# 签名密钥只从环境变量读（见下节）
-KEYSTORE_PATH=debug.keystore KEYSTORE_PASS=android KEY_ALIAS=androiddebugkey KEY_PASS=android \
-  bash build.sh
-# 产物：build/PureStart-vX.Y.Z-release.apk
+export ANDROID_HOME=/path/to/android-sdk
+export KEYSTORE_PATH=/path/to/existing.keystore
+# 按实际密钥设置 KEYSTORE_PASS、KEY_ALIAS、KEY_PASS；示例 debug 密钥默认值见 build.sh/Gradle。
+bash build.sh
 ```
 
-- 版本号唯一来源是 `AndroidManifest.xml`；module.prop 与输出文件名由 `build.sh` 派生，
-  代码内版本**运行时**经 PackageManager 读取（无 BuildVersion 生成文件）。
-- 构建前自动运行 `scripts/check.py` 漂移门禁（见下）。
+产物：`app/build/outputs/apk/release/app-release.apk`。无 `KEYSTORE_PATH` 时构建拒绝打包；不会生成新 release 密钥。Android 以包名和签名证书判断能否覆盖安装，**务必先核对现有安装版本证书、备份配置**。源码压缩包不包含签名密钥。
 
-## 签名（为什么不可覆盖、为什么不给默认值）
+Linux x86_64 可在阅读并接受 Android SDK 许可后执行 `ACCEPT_ANDROID_SDK_LICENSES=1 bash scripts/setup-compose-env.sh` 安装构建依赖，按脚本末尾提示设置环境变量。
 
-- **`KEYSTORE_PATH` 必填**：未设置或文件不存在时构建直接失败退出，**绝不自动生成新密钥**。
-  Android 按签名证书决定能否覆盖升级——换签名 = 老用户无法覆盖安装，只能卸载重装（丢配置）。
-- `KEYSTORE_PASS` / `KEY_ALIAS` / `KEY_PASS` 缺省 `android` / `androiddebugkey` / `android`
-  （标准 debug 三件套）。
-- 仓库内 `debug.keystore` 是历代连续发布用的密钥（证书 `6c825440…`），上面的示例命令
-  即等价调用；正式密钥把它换成自己的路径即可，其余流程不变。
+## 验证
 
-## scripts/check.py 用法
-
-```bash
-python3 scripts/check.py    # 退出码：通过 0、发现漂移 1
+```sh
+python3 scripts/check.py
+python3 tests/check_backend_unchanged.py
+python3 tests/test_settings_repository.py
+python3 tests/test_backup_repository.py # 在线下载测试用 org.json
+python3 tests/check_apk.py              # 需 ANDROID_HOME，针对默认 release 产物
 ```
 
-六项检查（构建前自动运行；提交前建议手动跑一次）：
+`tests/check_backend_unchanged.py` 需要包含基线提交 `3bb6bbd` 的 Git 检出；源码压缩包不含 Git 历史。
 
-1. 目标清单三处一致：`Targets.LIST` / `xposed/scope.list` / `SettingsActivity.APP_DESC`；
-2. 版本号单一来源：源码出现字面版本号即报错，module.prop 必须与 Manifest 一致；
-3. API 版本声明一致：Main.java ↔ module.prop `targetApiVersion`；
-4. Provider authority 一致：Manifest ↔ `Main.MODULE_PACKAGE + ".hookstate"`；
-5. UI/Hook 类隔离：UI 进程文件不得引用 Hook 类（防设置页 NoClassDefFoundError）；
-6. 签名密钥在位。
+release 使用 R8 及资源裁剪，并保留模块包内所有类及成员；混淆配置和第三方库的裁剪结果仍需在 LSPosed 真机验证。
 
-## 权限取舍
+上述检查包括作用域/Manifest 一致性、Hook 文件保护、JVM 模拟配置读写、APK 元数据和签名结构；**不能代替 Android 真机、LSPosed 及目标应用的运行验收**。当前尚未在设备上验证本迁移版，不应视为已证明功能零差异的正式发布版。
 
-| 权限 | 状态 | 理由 |
-|---|---|---|
-| `<queries>` 17 目标包 | 使用 | 精确可见性，替代全量枚举 |
-| ~~`QUERY_ALL_PACKAGES`~~ | 已移除 | 设置页只逐包查询 17 个目标，无需全量 |
-| ~~`INTERNET`~~ | 已移除 | 模块自身无网络请求（反馈按钮走系统浏览器） |
-| `HookStateProvider` exported | 保留 | 目标进程读取开关的跨进程通道（FPA/LSPatch/LSPosed 通用）；无鉴权，理论上可被他 App 读开关/伪造自检上报，敏感度低，属有意取舍 |
-| `forceQueryable` | 保留 | 保证目标进程在各类框架下都能 resolve 到本模块 |
+## 项目结构
 
-## 已知决定与待办
+- `compose-ui/`：设置 Activity、Compose 页面、玻璃与导航。
+- `src/com/yz8023/purestart/ui/`：设置与备份适配层。
+- `src/com/yz8023/purestart/`：Prefs、Targets、Provider 和原 Hook 实现。
+- `AndroidManifest.xml`：应用身份、版本、组件和可见包清单的权威来源。
+- `xposed/`：libxposed 入口与作用域元数据。
+- `third_party/`：参考项目许可说明。
 
-- **包名已于 v15.1.0 迁移至 `com.yz8023.purestart`**（原脚手架占位 `com.example.l`）。
-  迁移同步改了 Manifest package、Provider authority、`xposed/module.prop` id、
-  `java_init.list`、IconAlias/广播 action 与源码目录；authority 一致性由 check.py 第 4 项把关。
-  **断代影响**：旧包名版本无法覆盖升级到新包名（Android 按包名+签名判定），需先卸载旧版
-  （或两版并存）；旧版曾隐藏桌面图标的用户，恢复命令为
-  `adb shell pm enable com.example.l/.IconAlias`（或 `adb shell am broadcast -a com.example.l.action.SHOW_ICON`）。
-- 磨砂玻璃界面是 **View 近似**（命名与差异声明遵循 [yz8023/ui](https://github.com/yz8023/ui)
-  `prompts/03` 路线 B）：卡片=窗口内背景位图裁剪、底栏=限频截图降分辨率模糊、
-  弹窗 Android 12+ 用系统窗口背景模糊；无 Compose backdrop 折射。
-- `DexFinder` 是反射特征匹配的第一层实现，未对标 DexKit 全量 dex 检索（注释已如实标注）。
-
-## 目录速览
-
-见 [ModKit-开发指南.md](ModKit-开发指南.md)（添加 Hook 的步骤、版本规矩、签名规矩、
-磨砂维护红线、门禁说明）。
+配置文件名与键、Provider authority 及静态作用域保留；按需求调整了 Hook 闸门及自检回传，`module.prop` 版本字段已同步 Manifest。迁移范围、构建结果与尚待验收事项见 `COMPOSE_MIGRATION.md`。

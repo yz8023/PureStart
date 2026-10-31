@@ -92,7 +92,8 @@ public final class XiaoCanHook {
     }
 
     /** 延迟安装：三个生命周期点重试（壳解密后类可见时一次性安装） */
-    public static void hookLifecycleForDeferredInstall(XposedInterface xposed, Main.Reporter rep) {
+    public static void hookLifecycleForDeferredInstall(XposedInterface xposed, HookGate g, Main.Reporter rep) {
+        if (g != null) gate = g;
         if (rep != null) reporter = rep;
         if (!LIFECYCLE_HOOKED.compareAndSet(false, true)) return;
         try {
@@ -107,6 +108,7 @@ public final class XiaoCanHook {
             });
         } catch (Throwable t) {
             Log.e(TAG, "hook attachBaseContext failed: " + t);
+            repFail("Application.attachBaseContext", t);
         }
         try {
             Method onCreate = Application.class.getDeclaredMethod("onCreate");
@@ -120,6 +122,7 @@ public final class XiaoCanHook {
             });
         } catch (Throwable t) {
             Log.e(TAG, "hook Application.onCreate failed: " + t);
+            repFail("Application.onCreate", t);
         }
         try {
             Method actOnCreate = Activity.class.getDeclaredMethod("onCreate", Bundle.class);
@@ -132,6 +135,7 @@ public final class XiaoCanHook {
             });
         } catch (Throwable t) {
             Log.e(TAG, "hook Activity.onCreate failed: " + t);
+            repFail("Activity.onCreate", t);
         }
     }
 
@@ -141,7 +145,9 @@ public final class XiaoCanHook {
 
     private static boolean on(String key) {
         HookGate g = gate;
-        return g == null || g.on(key);
+        // An absent configuration source must never silently enable hooks; the
+        // main switch controls every sub-feature, including deferred installs.
+        return g != null && g.on("enabled") && ("enabled".equals(key) || g.on(key));
     }
 
     /** 一次性安装全部净化 Hook（AtomicBoolean 保证幂等） */

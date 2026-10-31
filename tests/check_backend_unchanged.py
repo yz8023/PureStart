@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Guard the existing Hook/configuration implementation during UI migration.
+
+Usage: python3 tests/check_backend_unchanged.py [baseline-git-ref]
+Default baseline is the commit from which the UI migration started. Checks the
+working tree, including staged and unstaged changes, against that commit.
+"""
+import subprocess
+import sys
+import pathlib
+import re
+import xml.etree.ElementTree as ET
+
+BASELINE = '3bb6bbd'
+FILES = [
+    'src/com/yz8023/purestart/DexFinder.java',
+    'src/com/yz8023/purestart/HookGate.java',
+    'src/com/yz8023/purestart/HookStateProvider.java',
+    'src/com/yz8023/purestart/IconControlReceiver.java',
+    'src/com/yz8023/purestart/Targets.java',
+    'xposed/java_init.list', 'xposed/scope.list',
+]
+# Prefs.java 单独按「允许新增行」的方式核对：v15.1.2 设置了新增一条界面偏好键
+# （页面左右滑动开关），键名必须集中在 Prefs.java。除下列新增行外其余必须与基线一致，
+# Hook 相关键与读写方法仍然受保护。
+PREFS_FILE = 'src/com/yz8023/purestart/Prefs.java'
+PREFS_ALLOWED_ADDITIONS = {
+    '/** 页面左右滑动开关（v15.1.2 新增；默认开） */',
+    'public static final String KEY_PAGE_SWIPE = "set_page_swipe";',
+    'public static boolean pageSwipeEnabled(Context c) { return sp(c).getBoolean(KEY_PAGE_SWIPE, true); }',
+}
+
+def main():
+    ref = sys.argv[1] if len(sys.argv) > 1 else BASELINE
+    root = subprocess.run(['git', 'rev-parse', '--show-toplevel'], check=True,
+                          capture_output=True, text=True).stdout.strip()
+    result = subprocess.run(['git', 'diff', '--exit-code', '--no-ext-diff', ref,
+                             '--', *FILES], cwd=root)
+    if result.returncode:
+        print('FAIL: backend differs from baseline (or Git could not compare it).')
+        return 1
+    prefs_diff = subprocess.run(['git', 'diff', '--no-ext-diff', ref, '--', PREFS_FILE],
+                                cwd=root, capture_output=True, text=True)
+    if prefs_diff.returncode:
+        print('FAIL: could not diff', PREFS_FILE)
+        return 1
+    unexpected = []
+    for line in prefs_diff.stdout.splitlines():
+        if line.startswith(('+++', '---', '@@', 'diff ', 'index ', 'new file', 'deleted file')):
+            continue
+        if line.startswith(('+', '-')):
+            body = line[1:].strip()
+            if body and body not in PREFS_ALLOWED_ADDITIONS:
+                unexpected.append(line)
+    if unexpected:
+        print('FAIL: Prefs.java has changes outside the v15.1.2 UI preference allowlist:')
+        for line in unexpected:
+            print('      ' + line[:100])
+        return 1
+    # module.prop version fields are build-derived; all other fields must match.
+    baseline = subprocess.run(['git', 'show', ref + ':xposed/module.prop'], cwd=root,
+                              capture_output=True, text=True, check=True).stdout
+    current = pathlib.Path(root, 'xposed/module.prop').read_text()
+    def stable_lines(text):
+        return [line for line in text.splitlines() if not re.match(r'^version(?:Code)?=', line)]
+    if stable_lines(current) != stable_lines(baseline):
+        print('FAIL: non-version module.prop metadata differs from baseline')
+        return 1
+    manifest = ET.parse(pathlib.Path(root, 'AndroidManifest.xml')).getroot()
+    namespace = '{http://schemas.android.com/apk/res/android}'
+    values = dict(line.split('=', 1) for line in current.splitlines() if '=' in line)
+    if (values.get('version') != 'v' + manifest.attrib[namespace + 'versionName'] or
+            values.get('versionCode') != manifest.attrib[namespace + 'versionCode']):
+        print('FAIL: module.prop version does not match manifest')
+        return 1
+    print('PASS: untouched backend matches', ref, '(module.prop version derived from manifest)')
+    print('NOTE: Main, UniversalAdHook and XiaoCanHook intentionally changed for diagnostics and gate fixes; runtime not verified.')
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main())
