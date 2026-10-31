@@ -126,8 +126,9 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.material3)
+    // v15.2 第二阶段：`kyant-shapes` 全仓库零引用（只用 backdrop 的 drawBackdrop/lens），
+    // 依赖与 libs.versions.toml 里的条目一并删除，少一个库就是少一份体积与混淆面。
     implementation(libs.kyant.backdrop)
-    implementation(libs.kyant.shapes)
     testImplementation(libs.junit)
     testImplementation(files(repo.resolve("libs/api.jar")))
 }

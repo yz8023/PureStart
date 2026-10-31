@@ -141,6 +141,69 @@ class SettingsRepository(context: Context) : AutoCloseable {
     /** Same read-only report produced by the existing exported provider. */
     fun selfCheck(packageName: String): String? = Prefs.readSelfCheck(appContext, packageName)
 
+    // ---------------------------------------------------------------- 外观参数
+    // v15.2 第二阶段：界面层不再自己 `Prefs.sp(context)`，全部经由仓库读取。
+    // 这样「谁在读偏好」只有一个入口，锁屏/多页面同步只需一条通知链。
+
+    fun opacity(): Float = Prefs.opacity(appContext)
+
+    fun tintAlpha(): Float = Prefs.tintAlpha(appContext)
+
+    fun blurDp(): Int = Prefs.blurDp(appContext)
+
+    fun prismHeightDp(): Int = Prefs.prismHeightDp(appContext)
+
+    fun prismAmountDp(): Int = Prefs.prismAmountDp(appContext)
+
+    fun borderAlpha(): Float = Prefs.borderAlpha(appContext)
+
+    fun vibrancy(): Boolean = Prefs.vibrancy(appContext)
+
+    fun chromatic(): Boolean = Prefs.chromatic(appContext)
+
+    fun damping(): Float = Prefs.damping(appContext)
+
+    fun wallpaperMode(): Int = Prefs.wallpaperMode(appContext)
+
+    fun wallpaperPath(): String? = Prefs.wallpaperPath(appContext)
+
+    fun wallpaperDim(): Float = Prefs.wallpaperDim(appContext)
+
+    fun cardTint(): Float = Prefs.cardTint(appContext)
+
+    fun plainMode(): Boolean = Prefs.plainMode(appContext)
+
+    fun pageSwipeEnabled(): Boolean = Prefs.pageSwipeEnabled(appContext)
+
+    fun setWallpaperMode(mode: Int) = Prefs.setWallpaperMode(appContext, mode)
+
+    fun setWallpaperPath(path: String?) = Prefs.setWallpaperPath(appContext, path)
+
+    fun wallpaperError(): String? = Prefs.wallpaperError(appContext)
+
+    fun setWallpaperError(reason: String?) = Prefs.setWallpaperError(appContext, reason)
+
+    // ---------------------------------------------------------------- 通用键读写
+    // 键名仍集中在 `Prefs`（唯一键表），这里只提供「不暴露 SharedPreferences 实例」的读写口。
+
+    fun boolean(key: String, default: Boolean): Boolean = preferences.getBoolean(key, default)
+
+    fun int(key: String, default: Int): Int = preferences.getInt(key, default)
+
+    fun string(key: String, default: String?): String? = preferences.getString(key, default)
+
+    fun putBoolean(key: String, value: Boolean) {
+        preferences.edit().putBoolean(key, value).apply()
+    }
+
+    fun putInt(key: String, value: Int) {
+        preferences.edit().putInt(key, value).apply()
+    }
+
+    fun putString(key: String, value: String?) {
+        preferences.edit().putString(key, value).apply()
+    }
+
     fun themeMode(): Int = Prefs.themeMode(appContext)
 
     fun setThemeMode(mode: Int) = Prefs.setThemeMode(appContext, mode)

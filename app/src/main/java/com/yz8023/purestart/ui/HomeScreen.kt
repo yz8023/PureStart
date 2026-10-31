@@ -3,9 +3,6 @@ package com.yz8023.purestart.ui
 import android.os.Build
 import android.content.Intent
 import android.net.Uri
-import androidx.activity.ComponentActivity
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.res.painterResource
 import com.yz8023.purestart.R
 import android.widget.Toast
@@ -55,30 +52,12 @@ fun HomeScreen(repository: SettingsRepository, bottomInset: Dp = 96.dp) {
     val apps by produceState<List<AppRecord>?>(null, context) {
         value = withContext(Dispatchers.IO) { loadApps(context.applicationContext) }
     }
-    var revision by remember { mutableIntStateOf(0) }
-    // v15.1.5：用 add/removeObserver（原来四个页面抢同一个 observer 槽，
-    // 设置页会收不到变化，开关看起来「点了没反应/卡死」）。
-    DisposableEffect(repository) {
-        val observer = SettingsRepository.Observer { revision++ }
-        repository.addObserver(observer)
-        onDispose { repository.removeObserver(observer) }
-    }
+    // v15.2 第二阶段：偏好刷新与桌面图标状态改由 SettingState.kt 统一提供。
+    val revision = rememberSettingsRevision(repository)
     val allOn = remember(apps, revision) { apps?.filter { it.installed }?.all { repository.isHookEnabled(it.pkg) } ?: true }
-    val iconController = remember(context) { LauncherIconController(context) }
+    val icon = rememberLauncherIconState()
     var menuOpen by remember { mutableStateOf(false) }
     var confirmHide by remember { mutableStateOf(false) }
-    var iconRevision by remember { mutableIntStateOf(0) }
-    val lifecycle = (context as? ComponentActivity)?.lifecycle
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) iconRevision++ }
-        lifecycle?.addObserver(observer)
-        onDispose { lifecycle?.removeObserver(observer) }
-    }
-    val iconShown = remember(iconRevision) { try { iconController.isShown() } catch (_: Exception) { true } }
-    fun setIcon(show: Boolean) {
-        try { iconController.setShown(show); iconRevision++ }
-        catch (e: Exception) { Toast.makeText(context, "切换失败：$e", Toast.LENGTH_SHORT).show(); iconRevision++ }
-    }
     fun openWeb(url: String) {
         try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
         catch (e: Exception) { Toast.makeText(context, "无法打开浏览器：${e.message}", Toast.LENGTH_SHORT).show() }
@@ -129,8 +108,8 @@ fun HomeScreen(repository: SettingsRepository, bottomInset: Dp = 96.dp) {
                     Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "更多选项")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text(if (iconShown) "隐藏桌面图标" else "显示桌面图标") },
-                        onClick = { menuOpen = false; if (iconShown) confirmHide = true else setIcon(true) })
+                    DropdownMenuItem(text = { Text(if (icon.shown) "隐藏桌面图标" else "显示桌面图标") },
+                        onClick = { menuOpen = false; if (icon.shown) confirmHide = true else icon.set(true) })
                 }
             }
         }
@@ -226,9 +205,7 @@ fun HomeScreen(repository: SettingsRepository, bottomInset: Dp = 96.dp) {
     }
     }
     if (confirmHide) {
-        AlertDialog(onDismissRequest = { confirmHide = false }, title = { Text("隐藏桌面图标") },
-            text = { Text("隐藏后桌面入口会消失。可尝试从 LSPosed 模块设置打开，或运行：\n\nadb shell am broadcast -a com.yz8023.purestart.action.SHOW_ICON\n\n也可运行：\nadb shell pm enable com.yz8023.purestart/.IconAlias") },
-            confirmButton = { TextButton(onClick = { confirmHide = false; setIcon(false) }) { Text("仍要隐藏") } },
-            dismissButton = { TextButton(onClick = { confirmHide = false }) { Text("取消") } })
+        HideIconDialog(onDismiss = { confirmHide = false },
+            onConfirm = { confirmHide = false; icon.set(false) })
     }
 }

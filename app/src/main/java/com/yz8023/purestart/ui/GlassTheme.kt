@@ -1,14 +1,13 @@
 package com.yz8023.purestart.ui
 
-import android.content.SharedPreferences
 import android.os.Build
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -19,7 +18,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
@@ -28,9 +33,12 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -41,7 +49,9 @@ import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
-import com.yz8023.purestart.Prefs
+import com.yz8023.purestart.repository.SettingsRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -59,30 +69,59 @@ data class GlassAppearance(val dark: Boolean, val aurora: Boolean, val enabled: 
     val wallpaper: Int = 0, val wallpaperPath: String? = null,
     val wallpaperDim: Float = .30f, val cardTint: Float = .10f, val plain: Boolean = false)
 
+/**
+ * 三档渲染（v15.2 第二阶段收敛）。
+ *
+ * 之前 `glassPanel` / `dockContainer` / `dockLens` 各自重复判断
+ * 「普通模式？」「关了磨砂？」「API < 31？」三遍，那一句 SDK 判定原本在文件里出现 3 次——
+ * 任何一处漏改就会出现「卡片是实心、底栏却还是玻璃」这种割裂。
+ * 现在判定只有一处，三个表面按同一个枚举分支：
+ *
+ *  - [Plain]：普通模式，实心 Material 表面，完全不采样背景；
+ *  - [Fallback]：无 RenderEffect（API < 31）或用户关了磨砂模糊，画极淡雾面；
+ *  - [Backdrop]：真玻璃（维基色/模糊/折射/高光）。
+ */
+private enum class GlassTier { Plain, Fallback, Backdrop }
+
+private val GlassAppearance.tier: GlassTier
+    get() = when {
+        plain -> GlassTier.Plain
+        !enabled || Build.VERSION.SDK_INT < 31 -> GlassTier.Fallback
+        else -> GlassTier.Backdrop
+    }
+
 private val LocalAppearance = staticCompositionLocalOf {
     GlassAppearance(false, false, true, .55f, .08f, 0, 15, 20, .20f, true, true)
 }
 private val LocalSceneBackdrop = staticCompositionLocalOf<Backdrop?> { null }
 
+/**
+ * 主题入口。外观参数统一从 [SettingsRepository] 读（界面层不再直接拿 SharedPreferences），
+ * 变化由仓库的一条偏好回调驱动重算。
+ */
 @Composable
-fun PureStartTheme(content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    val prefs = remember(context) { Prefs.sp(context) }
-    var revision by remember { mutableIntStateOf(0) }
-    DisposableEffect(prefs) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> revision++ }
-        prefs.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
+fun PureStartTheme(repository: SettingsRepository, content: @Composable () -> Unit) {
     val systemDark = isSystemInDarkTheme()
+    val revision = rememberSettingsRevision(repository)
     val appearance = remember(revision, systemDark) {
-        val mode = Prefs.themeMode(context)
-        GlassAppearance(mode == 2 || mode == 3 || (mode == 0 && systemDark), mode == 3,
-            Prefs.liquidBlurEnabled(context), Prefs.opacity(context), Prefs.tintAlpha(context),
-            Prefs.blurDp(context), Prefs.prismHeightDp(context), Prefs.prismAmountDp(context),
-            Prefs.borderAlpha(context), Prefs.vibrancy(context), Prefs.chromatic(context),
-            Prefs.wallpaperMode(context), Prefs.wallpaperPath(context), Prefs.wallpaperDim(context),
-            Prefs.cardTint(context), Prefs.plainMode(context))
+        val mode = repository.themeMode()
+        GlassAppearance(
+            dark = mode == 2 || mode == 3 || (mode == 0 && systemDark),
+            aurora = mode == 3,
+            enabled = repository.liquidBlurEnabled(),
+            opacity = repository.opacity(),
+            tint = repository.tintAlpha(),
+            blur = repository.blurDp(),
+            height = repository.prismHeightDp(),
+            amount = repository.prismAmountDp(),
+            border = repository.borderAlpha(),
+            vibrant = repository.vibrancy(),
+            chromatic = repository.chromatic(),
+            wallpaper = repository.wallpaperMode(),
+            wallpaperPath = repository.wallpaperPath(),
+            wallpaperDim = repository.wallpaperDim(),
+            cardTint = repository.cardTint(),
+            plain = repository.plainMode())
     }
     val colors = if (appearance.dark) darkColorScheme(
         primary = if (appearance.aurora) Color(0xFF38BDF8) else Color(0xFF9ABEFF),
@@ -97,22 +136,15 @@ fun PureStartTheme(content: @Composable () -> Unit) {
 /**
  * 背景层（玻璃采样对象）。
  *
- * v15.1.3 起三种来源统一在这里绘制：
- *  - 极光：四团径向光斑按各自轨道缓慢漂移，取自 yz8023/UI `AuroraBackground`
- *    的配色与轨道参数（AuroraLight / AuroraDark），比原来的线性渐变更耐看，
- *    也为玻璃提供有层次可折射的底图；
- *  - 系统壁纸：读取 WallpaperManager 的桌面壁纸；
- *  - 自定义图片：相册选图后复制到私有目录。
- * 后两种由 [WallpaperSurface] 在背景层里画，玻璃照样能折射到它。
+ * v15.1.3 起三种来源统一在这里绘制：极光 / 系统壁纸 / 自定义图片。
+ * v15.2 第二阶段：删掉了此处一个**永远在跑却从未被使用**的无限动画
+ * （`phase` 算完就丢，返回的 Brush 里没有任何时间项）——它只白烧帧。
  */
 @Composable
 fun glassBackground(): Brush {
     val appearance = LocalAppearance.current
     val base = MaterialTheme.colorScheme.background
     val palette = auroraPalette(appearance.dark, appearance.aurora)
-    val phase by rememberInfiniteTransition(label = "backgroundLight").animateFloat(
-        0f, (2 * PI).toFloat(), infiniteRepeatable(tween(28000, easing = LinearEasing), RepeatMode.Restart),
-        label = "backgroundLightPhase")
     return Brush.verticalGradient(listOf(base, base, palette[1].copy(alpha = .35f)))
 }
 
@@ -162,10 +194,10 @@ private fun BoxScope.WallpaperSurface() {
     val alpha = appearance.wallpaperDim.coerceIn(0f, .7f) * (if (appearance.dark) 1f else .55f)
     Box(Modifier.matchParentSize()) {
         if (painter != null) {
-            androidx.compose.foundation.Image(
+            Image(
                 painter = painter,
                 contentDescription = null,
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier.matchParentSize().blur(1.dp, BlurredEdgeTreatment.Unbounded))
         }
         Box(Modifier.matchParentSize().background(veil.copy(alpha = alpha)))
@@ -174,18 +206,22 @@ private fun BoxScope.WallpaperSurface() {
 
 /** 载入壁纸（IO 线程解码，失败静默回落到极光背景）。 */
 @Composable
-private fun rememberWallpaperPainter(mode: Int, path: String?): androidx.compose.ui.graphics.painter.Painter? {
+private fun rememberWallpaperPainter(mode: Int, path: String?): Painter? {
     val context = LocalContext.current
-    val state = produceState<androidx.compose.ui.graphics.painter.Painter?>(null, mode, path) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            WallpaperRepository.loadPainter(context, mode, path)
-        }
+    val state = produceState<Painter?>(null, mode, path) {
+        value = withContext(Dispatchers.IO) { WallpaperRepository.loadPainter(context, mode, path) }
     }
     return state.value
 }
 
+/**
+ * 卡片表面。三个分支只决定「用什么材质」，几何与描边参数共用：
+ *  - Plain：实心 Material 表面（参考 yz8023/UI 的 VisualMode.Normal）；
+ *  - Fallback：极淡白色渐变雾面（不是实心白底，否则浅色主题下发白）；
+ *  - Backdrop：玻璃（vibrancy/模糊/折射 + 1dp 柔和高光），不投阴影。
+ */
 @Composable
-fun Modifier.glassPanel(backdrop: Backdrop, radius: Int = 22, navigation: Boolean = false): Modifier {
+fun Modifier.glassPanel(backdrop: Backdrop, radius: Int = 22): Modifier {
     val appearance = LocalAppearance.current
     val surface = MaterialTheme.colorScheme.surface
     val shape = RoundedCornerShape(radius.dp)
@@ -194,49 +230,49 @@ fun Modifier.glassPanel(backdrop: Backdrop, radius: Int = 22, navigation: Boolea
     val rim = (appearance.border * .45f).coerceIn(0f, .18f)
     // 卡片底色完全由「卡片底色」这个滑杆决定（默认 10%，可拉到 0）。
     val tintAlpha = appearance.cardTint.coerceIn(0f, .40f)
-    val sheen = if (appearance.dark) {
-        Brush.verticalGradient(listOf(Color.White.copy(alpha = tintAlpha * .55f),
-            Color.White.copy(alpha = tintAlpha * .18f)))
-    } else {
-        Brush.verticalGradient(listOf(Color.White.copy(alpha = tintAlpha),
-            Color.White.copy(alpha = tintAlpha * .30f)))
-    }
+    val sheen = cardSheen(appearance.dark, tintAlpha)
 
-    // 普通模式（对照 yz8023/UI 的 VisualMode.Normal）：**实心** Material 卡片，
-    // 完全不采样背景。参考实现就是 `baseTint.copy(alpha = 1f)` + 阴影，
-    // 所以这里也必须是不透明的表面色——之前把「普通模式」做成了半透明玻璃降级，
-    // 于是浅色主题下既没有实心卡片的干净观感，又留下发白的半透明块。
-    if (appearance.plain) {
-        val solid = surface
-        return this.shadow(1.dp, shape, clip = false)
-            .clip(shape)
-            .background(solid)
-            .border(1.dp, if (appearance.dark) Color.White.copy(alpha = .06f)
-                            else Color.Black.copy(alpha = .05f), shape)
+    return when (appearance.tier) {
+        GlassTier.Plain -> solidSurface(shape, 1.dp, appearance)
+        GlassTier.Fallback -> clip(shape).background(sheen)
+            .border(1.dp, Color.White.copy(alpha = rim), shape)
+        GlassTier.Backdrop -> drawBackdrop(backdrop = backdrop, shape = { shape }, effects = {
+            if (appearance.vibrant) vibrancy()
+            if (appearance.blur > 0) blur(appearance.blur.dp.toPx())
+            if (appearance.height > 0 || appearance.amount > 0) lens(
+                refractionHeight = appearance.height.dp.toPx(),
+                refractionAmount = appearance.amount.dp.toPx(),
+                chromaticAberration = appearance.chromatic)
+        }, highlight = { Highlight(width = 1.dp, alpha = rim) },
+            // 卡片不再投放大阴影：浅色背景上那圈灰白晕边同样会被当成「白框」。
+            shadow = null,
+            onDrawSurface = { if (tintAlpha > 0f) drawRect(solidTint(surface, tintAlpha)) })
     }
+}
 
-    // RenderEffect/backdrop effects are unavailable on older Android releases,
-    // or when the user turned the frosted blur off. Draw the same soft sheen so
-    // the card still reads as glass — but never a solid white plate.
-    if (!appearance.enabled || Build.VERSION.SDK_INT < 31) {
-        return this.clip(shape).background(sheen).border(
-            1.dp, if (appearance.dark) Color.White.copy(alpha = rim)
-                  else Color.White.copy(alpha = rim), shape)
-    }
-    return drawBackdrop(backdrop = backdrop, shape = { shape }, effects = {
-        if (appearance.vibrant) vibrancy()
-        if (appearance.blur > 0) blur(appearance.blur.dp.toPx())
-        if (appearance.height > 0 || appearance.amount > 0) lens(
-            refractionHeight = appearance.height.dp.toPx(), refractionAmount = appearance.amount.dp.toPx(),
-            chromaticAberration = appearance.chromatic)
-    }, highlight = { Highlight(width = 1.dp, alpha = rim) },
-        // 卡片不再投放大阴影：浅色背景上那圈灰白晕边同样会被当成「白框」。
-        shadow = null,
-        onDrawSurface = { if (tintAlpha > 0f) drawRect(sheen.toSolid(surface, tintAlpha)) })
+/**
+ * 普通模式的实心表面：阴影 + 表面色 + 极淡描边。
+ * 卡片用 1dp、底栏容器用 3dp，几何一致，之前是两段各写一遍的重复代码。
+ */
+@Composable
+private fun Modifier.solidSurface(shape: Shape, elevation: Dp, appearance: GlassAppearance): Modifier =
+    shadow(elevation, shape, clip = false)
+        .clip(shape)
+        .background(MaterialTheme.colorScheme.surface)
+        .border(1.dp, if (appearance.dark) Color.White.copy(alpha = .06f)
+                        else Color.Black.copy(alpha = .05f), shape)
+
+/** 卡片雾面渐变：深色主题取更低的白色比例，浅色主题直接用卡片底色。 */
+private fun cardSheen(dark: Boolean, alpha: Float): Brush = if (dark) {
+    Brush.verticalGradient(listOf(Color.White.copy(alpha = alpha * .55f),
+        Color.White.copy(alpha = alpha * .18f)))
+} else {
+    Brush.verticalGradient(listOf(Color.White.copy(alpha = alpha),
+        Color.White.copy(alpha = alpha * .30f)))
 }
 
 /** 把 sheen 平均成一个等效纯色（onDrawSurface 只接受单次 drawRect）。 */
-private fun Brush.toSolid(surface: Color, alpha: Float): Color =
+private fun solidTint(surface: Color, alpha: Float): Color =
     if (surface.luminance() > .5f) Color.White.copy(alpha = alpha)
     else Color.White.copy(alpha = alpha * .22f)
 
@@ -301,12 +337,7 @@ fun Modifier.sceneGlassPanel(radius: Int = 22): Modifier {
  * 底栏容器（对照 yz8023/UI `LiquidBottomTabs` 的第 1 层）。
  *
  * 只做三件事：采样底层做磨砂/折射、给一个**柔和**高光、叠一层极淡 surface 染色。
- *
- * v15.1.7 修正：
- *  - highlight 从 `alpha = .70`（浅色主题）降到参考实现的 `Highlight.Default.alpha = .75`
- *    但宽度固定 1dp 且用 Default 风格（柔和高光），不再是一圈白边；
- *  - 普通模式（`appearance.plain`）走**实心**分支：surface 色 + 阴影，完全不采样背景，
- *    所以普通模式与玻璃模式的底栏外观是明显不同的两套。
+ * 三档材质与卡片同源（见 [GlassTier]），普通模式下是实心 Material 底栏。
  */
 @Composable
 fun Modifier.dockContainer(backdrop: Backdrop): Modifier {
@@ -314,55 +345,43 @@ fun Modifier.dockContainer(backdrop: Backdrop): Modifier {
     val shape = RoundedCornerShape(50)
     val surface = MaterialTheme.colorScheme.surface
 
-    // 普通模式：实心 Material 底栏（对照 VisualMode.Normal / Md3 —— 实心面 + 阴影）。
-    if (appearance.plain) {
-        return this.shadow(3.dp, shape, clip = false)
-            .clip(shape)
-            .background(surface)
-            .border(1.dp, if (appearance.dark) Color.White.copy(alpha = .06f)
-                           else Color.Black.copy(alpha = .05f), shape)
+    return when (appearance.tier) {
+        // 普通模式：实心 Material 底栏（对照 VisualMode.Normal / Md3 —— 实心面 + 阴影）。
+        GlassTier.Plain -> solidSurface(shape, 3.dp, appearance)
+        GlassTier.Fallback -> {
+            val tint = if (appearance.dark) Color.White.copy(alpha = .10f) else Color.White.copy(alpha = .30f)
+            shadow(3.dp, shape, clip = false).clip(shape).background(tint)
+                .border(1.dp, Color.White.copy(alpha = if (appearance.dark) .14f else .24f), shape)
+        }
+        GlassTier.Backdrop -> drawBackdrop(backdrop = backdrop, shape = { shape }, effects = {
+            if (appearance.vibrant) vibrancy()
+            blur(maxOf(4, appearance.blur).dp.toPx())
+            lens(refractionHeight = maxOf(8, appearance.height).dp.toPx(),
+                refractionAmount = maxOf(10, appearance.amount).dp.toPx(),
+                chromaticAberration = appearance.chromatic)
+        },
+            // 参考实现的容器高光是 Highlight.Default（柔和、1dp 宽、不加 blur）——
+            // 之前用的 .70 alpha 硬白边在浅色壁纸上就是那条「白框」。
+            highlight = { Highlight.Default.copy(alpha = .75f) },
+            shadow = { Shadow(radius = 10.dp, color = Color.Black, alpha = if (appearance.dark) .14f else .08f) },
+            // 参考实现：containerColor = surfaceContainer.copy(alpha = .10 + opacity * .55)
+            onDrawSurface = {
+                // 取 .10 + opacity * .30（本项目 opacity 默认 .55），观感等同、更保守。
+                drawRect(surface.copy(alpha = .10f + appearance.opacity.coerceIn(0f, 1f) * .30f))
+            })
     }
-
-    if (!appearance.enabled || Build.VERSION.SDK_INT < 31) {
-        val tint = if (appearance.dark) Color.White.copy(alpha = .10f) else Color.White.copy(alpha = .30f)
-        return this.shadow(3.dp, shape, clip = false).clip(shape).background(tint)
-            .border(1.dp, Color.White.copy(alpha = if (appearance.dark) .14f else .24f), shape)
-    }
-    return drawBackdrop(backdrop = backdrop, shape = { shape }, effects = {
-        if (appearance.vibrant) vibrancy()
-        blur(maxOf(4, appearance.blur).dp.toPx())
-        lens(refractionHeight = maxOf(8, appearance.height).dp.toPx(),
-            refractionAmount = maxOf(10, appearance.amount).dp.toPx(),
-            chromaticAberration = appearance.chromatic)
-    },
-        // 参考实现的容器高光是 Highlight.Default（柔和、1dp 宽、不加 blur）——
-        // 之前用的 .70 alpha 硬白边在浅色壁纸上就是那条「白框」。
-        highlight = { Highlight.Default.copy(alpha = .75f) },
-        shadow = { Shadow(radius = 10.dp, color = Color.Black, alpha = if (appearance.dark) .14f else .08f) },
-        // 参考实现：containerColor = surfaceContainer.copy(alpha = .10 + opacity * .55)
-        onDrawSurface = {
-            // 参考实现 containerColor = surfaceContainer.copy(alpha = .10f + opacity * .55f)；
-            // 这里取 .10 + opacity * .30（本项目 opacity 默认 .55），观感等同、更保守。
-            drawRect(surface.copy(alpha = .10f + appearance.opacity.coerceIn(0f, 1f) * .30f))
-        })
 }
 
 /**
  * 移动的胶囊（对照 yz8023/UI `LiquidBottomTabs` 的第 3 层）。
  *
- * 参考实现的按压行为很关键，v15.1.7 照抄：
- *  - 平时：几乎全透明（`Color.Black/White copy alpha = .1f`），只有一点点色调，
- *    所以**图标位置的那层胶囊不会把图标糊掉**；
- *  - 按压：highlight / innerShadow / lens 增强，但 surface 染色反而按
- *    `1f - progress` **变淡** —— 越按越透，图标透过玻璃看得更清楚（参考实现原文：
- *    `drawRect(..., alpha = 1f - progress)`）。
+ * 参考实现的按压行为很关键：
+ *  - 平时：几乎全透明，只有一点点色调，所以**图标位置的那层胶囊不会把图标糊掉**；
+ *  - 按压：highlight / innerShadow / lens 增强，但 surface 染色反而按 `1f - progress`
+ *    **变淡**——越按越透，图标透过玻璃看得更清楚；
  *  - 边框也只有按压时才出现（`Highlight(alpha = pressProgress)`）。
  *
- * 之前这里一直用「0.12~0.18 的白色填充 + 0.35~0.85 的硬白描边 + shadow」，
- * 那正是用户看到的「选中时把图标盖住 + 糊成一团 + 一圈白边」。
- *
- * 普通模式：不采样背景，退回一层很淡的同色面（`onSurface.copy(alpha ~.10)`），
- * 与参考实现 OShin/Md3 的选中底一致。
+ * 普通模式：不采样背景，退回一层很淡的同色面（`primary.copy(alpha ≈ .12)`）。
  */
 @Composable
 fun Modifier.dockLens(backdrop: Backdrop, press: Float): Modifier {
@@ -371,34 +390,31 @@ fun Modifier.dockLens(backdrop: Backdrop, press: Float): Modifier {
     val p = press.coerceIn(0f, 1f)
     val isLight = !appearance.dark
 
-    if (appearance.plain) {
+    return when (appearance.tier) {
         // 普通模式：实心主题色淡层，不做任何模糊/折射。
-        return this.clip(shape).background(
-            MaterialTheme.colorScheme.primary.copy(alpha = if (isLight) .12f else .20f))
+        GlassTier.Plain -> clip(shape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = if (isLight) .12f else .20f))
             .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .28f), shape)
-    }
-
-    if (!appearance.enabled || Build.VERSION.SDK_INT < 31) {
         // 无 RenderEffect 的降级：一层很淡的同色面 + 淡描边（绝不盖住图标）。
-        return this.clip(shape)
+        GlassTier.Fallback -> clip(shape)
             .background(if (appearance.dark) Color.White.copy(alpha = .07f)
                         else MaterialTheme.colorScheme.primary.copy(alpha = .08f))
             .border(1.dp, if (appearance.dark) Color.White.copy(alpha = .16f)
                            else MaterialTheme.colorScheme.primary.copy(alpha = .16f), shape)
+        GlassTier.Backdrop -> drawBackdrop(backdrop = backdrop, shape = { shape }, effects = {
+            if (appearance.vibrant) vibrancy()
+            blur(4.dp.toPx())
+            lens(refractionHeight = (maxOf(8, appearance.height) + 10f * p).dp.toPx(),
+                refractionAmount = (maxOf(10, appearance.amount) + 14f * p).dp.toPx(),
+                depthEffect = true, chromaticAberration = appearance.chromatic)
+        },
+            highlight = { Highlight(width = 1.dp, alpha = p) },
+            shadow = null,
+            onDrawSurface = {
+                // 参考实现：底色只有 10%，且按压时按 1 - progress 变淡。
+                drawRect((if (appearance.dark) Color.White else Color.Black).copy(alpha = .10f),
+                    alpha = 1f - p)
+                drawRect(Color.Black.copy(alpha = .03f * p))
+            })
     }
-    return drawBackdrop(backdrop = backdrop, shape = { shape }, effects = {
-        if (appearance.vibrant) vibrancy()
-        blur(4.dp.toPx())
-        lens(refractionHeight = (maxOf(8, appearance.height) + 10f * p).dp.toPx(),
-            refractionAmount = (maxOf(10, appearance.amount) + 14f * p).dp.toPx(),
-            depthEffect = true, chromaticAberration = appearance.chromatic)
-    },
-        highlight = { Highlight(width = 1.dp, alpha = p) },
-        shadow = null,
-        onDrawSurface = {
-            // 参考实现：底色只有 10%，且按压时按 1 - progress 变淡。
-            drawRect((if (appearance.dark) Color.White else Color.Black).copy(alpha = .10f),
-                alpha = 1f - p)
-            drawRect(Color.Black.copy(alpha = .03f * p))
-        })
 }

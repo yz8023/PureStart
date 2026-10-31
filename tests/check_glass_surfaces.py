@@ -24,17 +24,32 @@ assert 'shadow = null' in theme, '卡片不应投放阴影'
 assert 'val rim = (appearance.border * .45f).coerceIn(0f, .18f)' in theme, '描边必须压淡'
 assert 'KEY_CARD_TINT' in prefs
 
-# 3) 普通模式：卡片、底栏容器、胶囊三处都必须是实心分支（否则切了看不出区别）
-assert 'if (appearance.plain)' in theme and '.background(solid)' in theme
-plain_container = theme.index('fun Modifier.dockContainer')
-plain_lens = theme.index('fun Modifier.dockLens')
-container_body = theme[plain_container:plain_lens]
-lens_body = theme[plain_lens:]
-assert 'if (appearance.plain)' in container_body, '普通模式下底栏容器必须走实心分支'
-assert '.background(surface)' in container_body
-assert 'if (appearance.plain)' in lens_body, '普通模式下胶囊必须走实心/无色散分支'
-assert 'drawBackdrop' not in lens_body.split('if (appearance.plain)')[1].split('return drawBackdrop')[0], \
-    '普通模式胶囊不得再采样背景'
+# 3) 材质只有三档，判定只有一处（v15.2 第二阶段收敛到 GlassTier）：
+#    之前 glassPanel / dockContainer / dockLens 各写一遍「普通模式？关磨砂？SDK<31？」，
+#    SDK 判定在文件里出现 3 次，漏改一处就会出现「卡片实心、底栏还是玻璃」的割裂。
+assert 'private enum class GlassTier { Plain, Fallback, Backdrop }' in theme
+assert theme.count('Build.VERSION.SDK_INT < 31') == 1, 'SDK 版本判定必须只在 GlassTier 里写一次'
+
+
+def body(start, end):
+    return theme[theme.index(start):theme.index(end)]
+
+
+card = body('fun Modifier.glassPanel', 'private fun Modifier.solidSurface')
+container = body('fun Modifier.dockContainer', 'fun Modifier.dockLens')
+lens = theme[theme.index('fun Modifier.dockLens'):]
+# 实心表面统一由 solidSurface 提供（卡片 1dp / 底栏 3dp 只差阴影高度）
+assert '.background(MaterialTheme.colorScheme.surface)' in theme, '普通模式的实心表面色'
+assert 'GlassTier.Plain -> solidSurface(shape, 1.dp, appearance)' in card, '普通模式卡片必须实心'
+assert 'GlassTier.Plain -> solidSurface(shape, 3.dp, appearance)' in container, '普通模式底栏必须实心'
+# 降级分支必须是极淡雾面，绝不能是实心白底
+assert 'GlassTier.Fallback -> clip(shape).background(sheen)' in card, '降级卡片应为雾面而非白底'
+# 只有玻璃档才允许采样背景
+assert card.count('drawBackdrop') == 1 and 'GlassTier.Backdrop -> drawBackdrop' in card
+assert 'Highlight.Default.copy(alpha = .75f)' in container, '底栏容器用柔和高光而不是硬白边'
+assert 'GlassTier.Plain -> clip(shape)' in lens, '普通模式胶囊是实心/同色淡层'
+assert 'drawBackdrop' not in lens.split('GlassTier.Fallback')[0], '普通模式胶囊不得采样背景'
+assert 'alpha = 1f - p' in lens, '胶囊按压时底色必须按 1-progress 变淡（否则糊住图标）'
 assert 'KEY_PLAIN_MODE' in prefs
 
 # 4) 系统壁纸：照参考仓库的做法 —— 声明 MANAGE_EXTERNAL_STORAGE + 双通道读取 + 授权引导
@@ -50,7 +65,10 @@ assert 'dragTab(anchor, travelled, tabPx)' in shell, '底栏必须按手指位�
 assert 'capsuleOffset' in math, '胶囊像素位置必须由 tab 坐标线性导出'
 assert 'slotDelta' not in shell and 'slotDelta' not in math, \
     'v15.1.6 的「手指左移 = 槽位 +1」换算必须彻底删除（它就是反向的根源）'
-assert '.offset(x = sideInsetDp + tabDp * shownTab)' in shell, '胶囊位移必须与手指同向'
+# 胶囊像素位置统一由 DragMath.capsuleOffset 导出（与 DragMathTest 覆盖的公式同一份，
+# 避免「测试测的是 A、生产用的是 B」这种假覆盖）
+assert 'capsuleOffset(shownTab, tabPx, sideInsetPx)' in shell, '胶囊位移必须由 capsuleOffset 导出（与手指同向）'
+assert 'Build.VERSION.SDK_INT < 31' not in shell
 
 # 6) 胶囊不得盖住/糊住图标：图标常驻可见，只有胶囊正下方那一格淡出
 assert 'fadedIndex' in shell and 'animateFloatAsState' in shell

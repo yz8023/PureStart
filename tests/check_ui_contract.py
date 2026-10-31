@@ -46,4 +46,19 @@ assert 'PickVisualMedia' in settings or 'PickVisualMedia' in (root / 'app/src/ma
 wallpaper = (root / 'app/src/main/java/com/yz8023/purestart/ui/WallpaperRepository.kt').read_text()
 assert 'MODE_SYSTEM' in wallpaper and 'loadSystemWallpaper' in wallpaper
 assert ET.parse(root / 'app/src/main/res/drawable/ic_chevron_down.xml').getroot().find('path') is not None
+# v15.2 第二阶段：页面状态只有一条链 —— 版本号来自 SettingState.kt，页面不再自己注册观察者。
+ui = root / 'app/src/main/java/com/yz8023/purestart/ui'
+for name in ('HomeScreen.kt', 'AppsScreen.kt', 'SettingsScreen.kt', 'RuleEditor.kt', 'PureStartShell.kt'):
+    text = (ui / name).read_text()
+    assert 'rememberSettingsRevision(repository)' in text, name + ' 必须使用统一的偏好版本号'
+    assert 'SettingsRepository.Observer' not in text, name + ' 不得自己注册观察者'
+assert 'SettingsRepository.Observer' in (ui / 'SettingState.kt').read_text(), \
+    '观察者只允许在 SettingState.kt 里注册'
+state = (ui / 'SettingState.kt').read_text()
+assert 'fun HideIconDialog(' in state and 'HIDE_ICON_HINT' in state, '隐藏图标的文案与确认框必须共用一份'
+assert 'fun rememberLauncherIconState(' in state
+controls = (ui / 'PreferenceControls.kt').read_text()
+assert 'fun PreferenceSwitch(' in controls and 'fun PreferenceSlider(' in controls
+assert 'repository.putBoolean(key' in controls and 'repository.boolean(key, default)' in controls, \
+    '设置控件必须经仓库读写，不得直接碰 SharedPreferences'
 print('PASS: static glass/navigation and launcher entry contracts; device behaviour not tested')

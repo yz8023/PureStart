@@ -31,7 +31,7 @@ class SettingsActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val store = SettingsRepository(applicationContext)
         repository = store
-        setContent { PureStartTheme { PureStartShell(store) } }
+        setContent { PureStartTheme(store) { PureStartShell(store) } }
     }
 
     override fun onDestroy() {

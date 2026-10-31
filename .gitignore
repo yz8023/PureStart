@@ -5,3 +5,5 @@ app/build/
 .gradle/
 local.properties
 .kotlin/
+__pycache__/
+*.pyc

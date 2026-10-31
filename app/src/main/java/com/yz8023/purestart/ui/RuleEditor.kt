@@ -1,13 +1,6 @@
 package com.yz8023.purestart.ui
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -17,7 +10,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
 import com.yz8023.purestart.repository.SettingsRepository
 
@@ -27,14 +19,7 @@ import com.yz8023.purestart.repository.SettingsRepository
  */
 @Composable
 fun RuleEditor(repository: SettingsRepository, packageName: String, appName: String, onBack: () -> Unit) {
-    var revision by remember { mutableIntStateOf(0) }
-    // v15.1.5：用 add/removeObserver（原来四个页面抢同一个 observer 槽，
-    // 设置页会收不到变化，开关看起来「点了没反应/卡死」）。
-    DisposableEffect(repository) {
-        val observer = SettingsRepository.Observer { revision++ }
-        repository.addObserver(observer)
-        onDispose { repository.removeObserver(observer) }
-    }
+    val revision = rememberSettingsRevision(repository)
     // 背景沿用所在页面的 GlassScene（极光/壁纸），不再自铺 #F5F8FC 白底。
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {

@@ -9,9 +9,11 @@ run() { echo "== $*"; "$@" || { echo "   ^^ 失败"; failed=1; }; }
 run python3 scripts/check.py
 run python3 tests/check_ui_contract.py
 run python3 tests/check_glass_surfaces.py
+run python3 tests/check_ui_state.py
 run python3 tests/check_backend_unchanged.py
 run python3 tests/test_settings_repository.py
 run python3 tests/test_backup_repository.py
+run python3 tests/test_self_check_report.py
 
 if [[ -n "${ANDROID_HOME:-}" ]]; then
   run python3 tests/check_apk.py

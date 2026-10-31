@@ -1,6 +1,5 @@
 package com.yz8023.purestart.ui
 
-import android.content.SharedPreferences
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -36,7 +35,6 @@ import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.yz8023.purestart.Prefs
 import com.yz8023.purestart.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -69,21 +67,16 @@ import com.yz8023.purestart.repository.SettingsRepository
 @Composable
 fun PureStartShell(repository: SettingsRepository) {
     val context = LocalContext.current
-    val prefs = remember(context) { Prefs.sp(context) }
-    var revision by remember { mutableIntStateOf(0) }
-    DisposableEffect(prefs) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> revision++ }
-        prefs.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
+    // v15.2 第二阶段：不再自带 SharedPreferences 监听，偏好变化由仓库统一通知。
+    val revision = rememberSettingsRevision(repository)
     val apps by produceState<List<AppRecord>?>(null, context) {
         value = withContext(Dispatchers.IO) { loadApps(context.applicationContext) }
     }
     val badge = remember(apps, revision) {
-        if (!Prefs.appBadgeEnabled(context)) 0
+        if (!repository.appBadgeEnabled()) 0
         else apps?.count { it.installed && repository.isHookEnabled(it.pkg) } ?: 0
     }
-    val damping = remember(revision) { Prefs.damping(context) }
+    val damping = remember(revision) { repository.damping() }
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
 
     val pagerState = rememberPagerState(pageCount = { 4 })
@@ -148,7 +141,6 @@ fun PureStartShell(repository: SettingsRepository) {
             val slotPx = with(LocalDensity.current) { maxWidth.toPx() }
             val tabPx = tabWidth(slotPx, sideInsetPx)
             val tabDp: Dp = with(LocalDensity.current) { tabPx.toDp() }
-            val sideInsetDp = 4.dp
 
             // 胶囊 tab 坐标：拖动中用手势值，否则跟 Pager 真实滚动位置
             // （currentPage + currentPageOffsetFraction，向右翻页为正，左移为负 → 胶囊左移）。
@@ -226,8 +218,12 @@ fun PureStartShell(repository: SettingsRepository) {
 
             // ④ 玻璃胶囊：与容器同级、后绘制，所以能越出底栏边界（按压 78/56 放大）。
             //    translationX 与手指同向；普通模式下走实心分支。
+            //    横向位置统一由 DragMath.capsuleOffset 导出（与 DragMathTest 覆盖的公式同一份）。
+            val capsuleX = with(LocalDensity.current) {
+                capsuleOffset(shownTab, tabPx, sideInsetPx).toDp()
+            }
             Box(Modifier
-                .offset(x = sideInsetDp + tabDp * shownTab)
+                .offset(x = capsuleX)
                 .size(width = tabDp, height = 56.dp)
                 .graphicsLayer {
                     val scale = 1f + .39f * pressProgress

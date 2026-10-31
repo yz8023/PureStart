@@ -23,10 +23,12 @@ Linux x86_64 可在阅读并接受 Android SDK 许可后执行 `ACCEPT_ANDROID_S
 ```sh
 python3 scripts/check.py                     # 漂移门禁（含密钥在位）
 python3 tests/check_ui_contract.py           # 玻璃/导航/入口静态契约（含底栏胶囊回归断言）
-python3 tests/check_glass_surfaces.py        # 卡片通透度 + 系统壁纸取法回归断言
+python3 tests/check_glass_surfaces.py        # 三档材质 / 卡片通透度 / 系统壁纸取法回归断言
+python3 tests/check_ui_state.py              # 界面状态唯一来源（无重复监听/控件/弹窗）
 python3 tests/check_backend_unchanged.py     # 需要基线提交 3bb6bbd 的 Git 检出
 python3 tests/test_settings_repository.py   # Kotlin 仓库契约（多观察者 / close / Flow 通道），需要 kotlinc
 python3 tests/test_backup_repository.py     # Kotlin 仓库契约（JSON 格式 / 增量合并 / 异常），需要 kotlinc
+python3 tests/test_self_check_report.py      # Hook 自检上报解析（纯函数），需要 kotlinc
 python3 tests/check_apk.py              # 需 ANDROID_HOME，针对默认 release 产物
 ```
 
@@ -45,6 +47,9 @@ v15.2 第一阶段重构后，源码统一使用 AGP 默认布局（不再有 `s
 
 - `app/src/main/java/com/yz8023/purestart/`：`Prefs`、`Targets`、Provider 与原 Hook 实现（Java，仍受基线守门保护）。
 - `app/src/main/java/com/yz8023/purestart/ui/`：设置 Activity 与 Compose 页面、玻璃与导航（Kotlin）。
+  `GlassTheme.kt` 的三档材质（普通/降级/玻璃）由 `GlassTier` 单点判定；
+  `SettingState.kt` 是界面状态的唯一来源（偏好版本号、桌面前台刷新、桌面图标状态、隐藏图标弹窗）；
+  `PreferenceControls.kt` 是设置页的通用开关/滑杆（经仓库读写）。
 - `app/src/main/java/com/yz8023/purestart/repository/`：设置读写与配置备份适配层（Kotlin + Flow，不依赖 Compose，可在纯 JVM 上跑契约测试）。
 - `app/src/main/AndroidManifest.xml`：版本号、组件和可见包清单的权威来源（包名权威是 `app/build.gradle.kts` 的 `namespace`）。
 - `app/src/main/res/`：图标与设置页资源。
@@ -53,7 +58,7 @@ v15.2 第一阶段重构后，源码统一使用 AGP 默认布局（不再有 `s
 
 分层规则（`scripts/check.py` 第 5/6 项守门）：`ui` / `repository` 层不得引用 Hook 类，
 `repository` 层不得依赖 Compose；UI 与 repository 层不再保留 Java 文件。
-第一阶段改动清单见 `REFACTOR-v15.2-phase1.md`。
+改动清单：第一阶段见 `REFACTOR-v15.2-phase1.md`，第二阶段见 `REFACTOR-v15.2-phase2.md`。
 
 ## 权限说明
 
