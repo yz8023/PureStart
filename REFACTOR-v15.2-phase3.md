@@ -26,7 +26,8 @@
 旧图标是 256×256 RGBA、21 KB 的位图：蓝色圆角方（squircle）+ 白色字母 M + 对角渐变。
 手写 `pathData` 要么形状不像，要么文件比 PNG 还大。所以写了 **生成器**，而不是手抄路径：
 
-`scripts/make_launcher_vector.py`（新增，依赖 opencv/numpy/PIL）
+`scripts/make_launcher_vector.py`（新增，依赖 opencv/numpy/PIL；`--check` 只自检，
+可传路径指定别的源图）
 1. 读 PNG 的 alpha 通道做轮廓提取，`approxPolyDP` 分别压缩「形状」与「字形」两条轮廓；
 2. 用最小二乘拟合对角渐变端点色（得到 `#FF3070EB → #FF1549A8`）；
 3. 输出 `vector` XML：视口 256×256、`android:width/height = 108dp`、两条 path（形状带
@@ -43,7 +44,12 @@
 视觉复核：把 pathData 在 432 px（xxxhdpi 前景实际渲染尺寸）下重绘，`/home/user/launcher_preview_432.png`
 留存，曲线连续无折角。
 
-> 纪律：这个 XML **不要手改**。要改样子就改 PNG 再跑生成器，否则 `--check` 的 IoU 保证就失效了。
+**源图留在哪**：原 PNG 从 `res/drawable/` 删掉了（放进去就是白占 APK 体积），但作为生成器的
+输入保留在 `scripts/launcher_source.png`（21,313 B，不进 APK）。
+
+> 纪律：这个 XML **不要手改**。要改样子就改 `scripts/launcher_source.png` 再跑
+> `python3 scripts/make_launcher_vector.py`（重跑已确认与当前提交**逐字节相同**），
+> 否则 `--check` 的 IoU 保证就失效了。
 
 ### 1.3 顺带删掉的 9 个零引用图标
 `ic_set_bell / ic_set_drop / ic_set_home / ic_set_lang / ic_set_palette / ic_set_refresh / ic_tab_home_fill / ic_tab_extension_fill / ic_tab_settings_fill`

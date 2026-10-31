@@ -13,6 +13,10 @@
 用法：
     python3 scripts/make_launcher_vector.py            # 生成并自检
     python3 scripts/make_launcher_vector.py --check    # 只自检已生成的 XML
+    python3 scripts/make_launcher_vector.py <png>      # 指定别的源图（默认 scripts/launcher_source.png）
+
+源 PNG 不放在 `res/`（放进去就是白占 APK 体积），而是作为生成器的输入留在 `scripts/` 下：
+**改图标时改这张图，再跑本脚本**，不要手改 XML。
 
 依赖：opencv-python / numpy / pillow（仅开发机需要，构建不需要）。
 """
@@ -25,7 +29,7 @@ import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-PNG = ROOT / 'app/src/main/res/drawable/ic_launcher_foreground.png'
+PNG = ROOT / 'scripts/launcher_source.png'  # 源图（不进 res/，不影响 APK）
 XML = ROOT / 'app/src/main/res/drawable/ic_launcher_foreground.xml'
 SIZE = 256
 IOU_MIN = 0.99
@@ -147,6 +151,11 @@ def check():
 
 
 if __name__ == '__main__':
+    cli = [a for a in sys.argv[1:] if not a.startswith('--')]
+    if cli:
+        PNG = Path(cli[0]).resolve()
+        if not PNG.is_file():
+            raise SystemExit('找不到源图：%s' % PNG)
     if '--check' not in sys.argv:
         build()
     check()

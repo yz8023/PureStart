@@ -44,8 +44,9 @@ release 使用 R8 及资源裁剪。第三阶段起 **不再整包保留**：只
 （`Main` 由 `xposed/java_init.list` 在目标进程里按名加载、四个清单组件、`BuildInfo`），
 其余类允许混淆——前提是「全仓库没有任何一处按名字反射自己的类」，这一点由
 `tests/check_release_config.py` 守住。同时剔除构建期元数据（`*.kotlin_module` 等），
-语言资源只留 `zh`/`en`，`res/` 下不再有位图（启动图标已矢量化，由
-`scripts/make_launcher_vector.py` 生成，**不要手改**）。
+语言资源只留 `zh`/`en`，`res/` 下不再有位图（启动图标已矢量化为
+`res/drawable/ic_launcher_foreground.xml`，由 `scripts/make_launcher_vector.py` 从
+`scripts/launcher_source.png` 生成（脚本自带 IoU 自检），**不要手改 XML**）。
 混淆配置与裁剪结果仍需在 LSPosed 真机验证。
 
 上述检查包括作用域/Manifest 一致性、Hook 文件保护、JVM 模拟配置读写、APK 元数据和签名结构；**不能代替 Android 真机、LSPosed 及目标应用的运行验收**。当前尚未在设备上验证本迁移版，不应视为已证明功能零差异的正式发布版。
