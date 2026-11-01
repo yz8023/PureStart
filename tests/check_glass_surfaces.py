@@ -70,11 +70,21 @@ assert 'slotDelta' not in shell and 'slotDelta' not in math, \
 assert 'capsuleOffset(shownTab, tabPx, sideInsetPx)' in shell, '胶囊位移必须由 capsuleOffset 导出（与手指同向）'
 assert 'Build.VERSION.SDK_INT < 31' not in shell
 
-# 6) 胶囊不得盖住/糊住图标：图标常驻可见，只有胶囊正下方那一格淡出
-assert 'fadedIndex' in shell and 'animateFloatAsState' in shell
-assert 'alpha = fade' in shell, '胶囊下方的 tab 必须淡出，其余图标保持可见'
-# 胶囊仍然必须在图标层之后绘制，才能「泡」在图标之上
-assert shell.index('.dockLens(lensBackdrop') > shell.index('DockItems('), '胶囊应在图标层之后绘制'
+# 6) 胶囊不得盖住/糊住图标（v15.2 第三阶段重写）：
+#    上一版靠「胶囊正下方那一格 alpha 淡出」补救，等于让 SVG 直接消失；
+#    现在图标画在胶囊之上、保持不透明，靠近胶囊时**放大**（DragMath.proximityScale）。
+assert 'fadedIndex' not in shell and 'alpha = fade' not in shell, '不得再用「淡出」隐藏胶囊下方的图标'
+assert 'proximityScale(' in shell and 'proximity(' in shell, '图标放大必须由 DragMath 的纯函数导出'
+assert 'IconMaxScaleDelta' in math, '放大上限必须在 DragMath 里定义（DragMathTest 覆盖）'
+assert 'fun proximityScale(' in math and 'fun proximity(' in math and 'fun tapTab(' in math
+# 图标层在胶囊之后绘制（最上层）——句柄同 check_ui_contract.py
+occ = [i for i in range(len(shell)) if shell.startswith('DockItems(', i)]
+defs = [i for i in occ if 'private fun RowScope.' in shell[max(0, i - 30):i]]
+calls = [i for i in occ if i not in defs]
+assert len(calls) == 1 and calls[0] > shell.index('.dockLens(lensBackdrop'), \
+    '图标层应在胶囊之后绘制：滑动时图标放大且永不被胶囊盖住'
+# 胶囊按压只放大 6%，不再是 139%（139% 会越过邻格压住两三个图标）
+assert '1f + .06f * pressProgress' in shell and '.39f' not in shell, '胶囊放大必须收敛到 6%，不得再压住邻格'
 
 # 7) 底栏容器/胶囊不得再用高不透明白边（「白框/糊」的历史根因）
 for bad in ['Highlight(width = 1.dp, alpha = if (appearance.dark) .42f else .70f)',

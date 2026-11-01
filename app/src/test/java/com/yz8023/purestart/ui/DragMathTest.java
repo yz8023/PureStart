@@ -74,6 +74,39 @@ public class DragMathTest {
  }
 
  /**
+  * v15.2 第三阶段：轻点落点 = 手指按下那一格（点到哪里，胶囊就滑到哪里）。
+  */
+ @Test public void tapLandsOnPointedSlot() {
+  assertEquals(0, DragMath.tapTab(4f, 96f, 4f));       // 最左
+  assertEquals(1, DragMath.tapTab(120f, 96f, 4f));
+  assertEquals(2, DragMath.tapTab(220f, 96f, 4f));
+  assertEquals(3, DragMath.tapTab(392f, 96f, 4f));     // 最右
+  assertEquals(0, DragMath.tapTab(999f, 0f, 0f));      // 零宽安全
+ }
+
+ /**
+  * 图标「放大液态」：胶囊正下方放大最多，隔一格回到 1.00，且永远不缩小。
+  */
+ @Test public void iconScaleGrowsNearCapsule() {
+  assertEquals(1.28f, DragMath.proximityScale(2f, 2), .001f);      // 正下方：最大
+  assertEquals(1.0933f, DragMath.proximityScale(2f, 1), .001f);    // 隔一格：微微放大
+  assertEquals(1.00f, DragMath.proximityScale(2f, 0), .001f);      // 隔两格：不变
+  assertEquals(1.0933f, DragMath.proximityScale(2f, 3), .001f);
+  assertEquals(1.1867f, DragMath.proximityScale(1.5f, 1), .001f);  // 拖动到两格之间：两格同样放大
+  assertEquals(1.1867f, DragMath.proximityScale(1.5f, 2), .001f);
+  assertEquals(1.14f, DragMath.proximityScale(1.25f, 2), .001f);   // 差 0.75 格
+  assertEquals(0f, DragMath.proximity(0f, 3), .001f);
+  assertEquals(1f, DragMath.proximity(0f, 0), .001f);
+  // 任何输入都不允许出现「缩小」或越界放大
+  for (int i = 0; i < 4; i++) {
+   for (float t = 0f; t <= 3f; t += .25f) {
+    float s = DragMath.proximityScale(t, i);
+    assertTrue("缩放必须在 1.00~1.28 之间", s >= 1f && s <= DragMath.IconMaxScaleDelta + 1f + .001f);
+   }
+  }
+ }
+
+ /**
   * v15.1.6 的「手指左移 = 槽位 +1」换算已彻底删除：
   * 现在手指右移一槽，胶囊像素坐标必须**增大**（而不是减小）。
   */

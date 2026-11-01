@@ -71,6 +71,43 @@ fun landingTab(tab: Float, velocityPx: Float, tabWidth: Float): Int {
 fun nearestTab(tab: Float): Int = tab.roundToInt().coerceIn(0, 3)
 
 /**
+ * 轻点落点：手指按下的横坐标属于哪一格。**点到哪里，胶囊就缓速滑到哪一格**。
+ *
+ * 上一版轻点只走 child clickable，胶囊动画用的是吸附弹簧（stiffness 700~1000），
+ * 观感是「跳过去」；判定本身也只看控件命中区，不看手指实际位置。
+ */
+@JvmOverloads
+fun tapTab(x: Float, tabWidth: Float, sideInset: Float = 0f): Int =
+    nearestTab(tabAtPosition(x, tabWidth, sideInset))
+
+/**
+ * 图标放大系数的最大增量（「放大液态处理」）。
+ * 胶囊正下方那一格放大到 1.28 倍，向两侧线性衰减到 1.00。
+ */
+const val IconMaxScaleDelta: Float = 0.28f
+
+/**
+ * 某一格与胶囊的亲近度：胶囊正下方 = 1，间隔 1.5 格及以上 = 0（拖动中连续变化）。
+ *
+ * 衰减窗口取 1.5 格（而不是 1 格）：胶囊停在两格之间时，左右两格同时微微放大，
+ * 滑过去的过程是连续的，不会出现「这一格突然弹大、那一格突然缩回」的跳变。
+ */
+const val IconFalloffSlots: Float = 1.5f
+
+fun proximity(shownTab: Float, index: Int): Float =
+    (1f - kotlin.math.abs(shownTab - index.toFloat()) / IconFalloffSlots).coerceIn(0f, 1f)
+
+/**
+ * 图标放大系数：1.00（远）… 1.28（胶囊正下方）。
+ *
+ * 这是「滑动时图标被遮挡/模糊」的替代方案：图标画在胶囊**之上**且不透明，
+ * 靠近胶囊时放大，而不是被胶囊盖住后淡出。
+ */
+@JvmOverloads
+fun proximityScale(shownTab: Float, index: Int, maxDelta: Float = IconMaxScaleDelta): Float =
+    1f + maxDelta.coerceAtLeast(0f) * proximity(shownTab, index)
+
+/**
  * 胶囊左缘像素坐标：底栏内缩 + tab × 槽宽，右正。
  * 钳位在 [sideInset, sideInset + 3 × tabWidth]，胶囊整体不会跑出底栏。
  */

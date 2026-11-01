@@ -16,7 +16,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -28,7 +27,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -44,25 +42,29 @@ import com.yz8023.purestart.repository.SettingsRepository
 /**
  * 主壳：四个横向页面 + 一条底栏。
  *
- * ## v15.1.7 重写（对照 yz8023/UI 的 `LiquidBottomTabs`）
+ * ## v15.2 第三阶段：底栏三层重排（跟手 / 缓速 / 放大液态）
  *
- * 参考实现的底栏只有三层，顺序和职责非常固定：
+ * 上一版把玻璃胶囊画在**图标层之上**，并靠按压时放大到 139% 来表现「液态」。
+ * 结果是：胶囊一旦放大就盖住邻格 2~3 个图标，再叠 4dp 模糊 + 底色染色，
+ * 图标看起来就是「被遮挡 + 被糊住」；代码只能把胶囊正下方那一格 alpha 归零补救，
+ * 于是那一格的 SVG 干脆消失。用户看到的就是「滑动时几个功能图标被挡住/糊掉」。
  *
- *  1. **容器**：`drawBackdrop(...)` 只负责磨砂/折射「底层内容」，
- *     highlight 用 `Highlight.Default`（柔和高光），surface 染色极淡
- *     （`surfaceContainer.copy(alpha = 0.10f + opacity * 0.55f)`）；
- *  2. **图标层**：普通图标在**胶囊下面**，胶囊画上去之后图标是「泡在玻璃里」的；
- *     真正被胶囊盖住的那一个 tab，参考实现把它做成**透明**（alpha 0）——
- *     所以图标永远不会「被玻璃糊住看不见」；
- *  3. **胶囊**：`translationX = tab * tabWidth`（右正），吸附时走弹簧；
- *     按压时只提高 highlight / innerShadow / lens 的强度，
- *     **surface 染色随按压变小**（`alpha = 1f - progress`），越按越透，绝不糊图标。
+ * 现在绘制顺序反过来，而且顺序本身就是契约（见 tests/check_ui_contract.py）：
  *
- * 本文件把这套结构照搬过来，并按本项目的「普通模式」补一条分支：
- * 普通模式下 `glassEnabled = false`，容器与胶囊都退回**实心/极淡描边**，
- * 底栏外观与玻璃模式明显不同（这就是参考实现的 VisualMode 与 Glass 之分）。
+ *  1. **底板**（`dockContainer`）：磨砂/折射 + 承载手势区；
+ *  2. **胶囊**（`dockLens`）：画在底板之上、**图标之下**，只当「液态底」，
+ *     按压时只放大 6%（不再 39%），不会去挤压邻格；
+ *  3. **图标层**（`DockItems`）：**最上层**，永远不会被胶囊盖住；
+ *     离胶囊越近放大越多（`DragMath.proximityScale`，1.00 → 1.28），
+ *     拖动过程中连续变化 —— 这就是「放大液态处理」，不再有任何淡出。
  *
- * 方向：手指位移 → tab 位移 → 胶囊像素，全程「右正」，左移即 v 左移。
+ * ## 跟手与缓速
+ *
+ * - 拖动：锚点 = 按下瞬间的胶囊位置，手指位移**直接**加到 tab 坐标上
+ *   （`dragTab(anchor, travelled, tabPx)`，右正），并且**没有触摸阈值死区**：
+ *   手指移动的第一像素胶囊就跟着走（阈值只用来判断这次手势算拖动还是轻点）。
+ * - 轻点：`tapTab(按下点 x)` 算出点在哪一格，胶囊用 `glideSpec`（比吸附慢一档）
+ *   **缓速滑过去**，而不是原来的 `snapSpec` 瞬移。
  */
 @Composable
 fun PureStartShell(repository: SettingsRepository) {
@@ -81,8 +83,7 @@ fun PureStartShell(repository: SettingsRepository) {
 
     val pagerState = rememberPagerState(pageCount = { 4 })
     val scope = rememberCoroutineScope()
-    // 参考实现：valueAnimation 用 DampedRatio(1f) + stiffness 1000，落点干脆不越界。
-    // 「动效阻尼」滑杆只影响这里，下限抬到 .70，避免过冲/抖动。
+    // 松手吸附：落点干脆不越界。「动效阻尼」滑杆只影响这里，下限抬到 .80。
     val snapSpec = remember(damping) {
         spring<Float>(
             dampingRatio = (0.80f + damping * 0.20f).coerceIn(0.80f, 1f),
@@ -90,10 +91,15 @@ fun PureStartShell(repository: SettingsRepository) {
             visibilityThreshold = 0.001f
         )
     }
+    // v15.2 第三阶段：轻点 / 点击走这一档 —— 比吸附慢、比吸附软，
+    // 观感是「滑过去」而不是「跳过去」。stiffness 700+ 的吸附用在这里就是瞬移。
+    val glideSpec = remember {
+        spring<Float>(dampingRatio = 0.92f, stiffness = 260f, visibilityThreshold = 0.001f)
+    }
 
     // 胶囊位置（tab 坐标，0..3）。唯一同向约定：手指右移 = tab 增大（见 DragMath.tabDelta）。
     val capsuleTab = remember { Animatable(pagerState.currentPage.toFloat()) }
-    // pager 静止时把胶囊同步到真实页（点击 tab / 侧滑翻页 / 首次布局都走这里）。
+    // pager 静止时把胶囊同步到真实页（侧滑翻页 / 首次布局走这里；点击已经在手势里处理）。
     LaunchedEffect(pagerState.settledPage) {
         capsuleTab.animateTo(pagerState.settledPage.toFloat(), snapSpec)
     }
@@ -101,7 +107,7 @@ fun PureStartShell(repository: SettingsRepository) {
     val interactions = remember { List(4) { MutableInteractionSource() } }
     val pressed = interactions.map { it.collectIsPressedAsState().value }
     val dockPressing = dragTabPos != null || pressed.any { it }
-    // 按压强度：驱动胶囊高光/缩放（参考实现 pressProgress）
+    // 按压强度：驱动胶囊缩放 / 高光（参考实现 pressProgress）
     val pressProgress by androidx.compose.animation.core.animateFloatAsState(
         if (dockPressing) 1f else 0f,
         spring(dampingRatio = .65f, stiffness = 350f), label = "dockPress")
@@ -109,10 +115,11 @@ fun PureStartShell(repository: SettingsRepository) {
     // 页面内容自己再录一层：底栏玻璃要折射「背景 + 页面内容」两者。
     val pageBackdrop = rememberLayerBackdrop(graphicsLayer = rememberGraphicsLayer()) { drawContent() }
     val sceneBackdrop = currentSceneBackdrop()
-    val labelsBackdrop = rememberLayerBackdrop(graphicsLayer = rememberGraphicsLayer()) { drawContent() }
     val dockBackdrop = if (sceneBackdrop != null) rememberCombinedBackdrop(sceneBackdrop, pageBackdrop)
                        else pageBackdrop
-    val lensBackdrop = rememberCombinedBackdrop(dockBackdrop, labelsBackdrop)
+    // v15.2 第三阶段：不再为「图标采样副本」单独录一层（图标现在画在胶囊之上，
+    // 不需要也不应该被胶囊折射），胶囊只采样「背景 + 页面内容」。
+    val lensBackdrop = dockBackdrop
 
     // 页面内容底部留白 = 底栏高度 + 上下间距 + 导航栏，避免内容被胶囊压住。
     val contentBottom = 64.dp + 12.dp * 2 + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -142,95 +149,96 @@ fun PureStartShell(repository: SettingsRepository) {
             val tabPx = tabWidth(slotPx, sideInsetPx)
             val tabDp: Dp = with(LocalDensity.current) { tabPx.toDp() }
 
-            // 胶囊 tab 坐标：拖动中用手势值，否则跟 Pager 真实滚动位置
-            // （currentPage + currentPageOffsetFraction，向右翻页为正，左移为负 → 胶囊左移）。
+            // 胶囊 tab 坐标：拖动中用手势值，否则跟 Pager 真实位置。
             val shownTab = dragTabPos ?: capsuleTab.value
 
-            // ① 玻璃底板：只负责磨砂/折射 + 承载点击区（highlight 用柔和高光，
-            //    不再用 0.7 alpha 的白色硬描边——那是「白框框」的来源）。
-            Box(Modifier.fillMaxSize().dockContainer(dockBackdrop)
-                .pointerInput(rtl, slotPx) {
-                    // 底栏拖拽：照参考实现 `updateValue(targetValue + dragAmount.x / tabWidth)`，
-                    // 即**手指位移直接加到 tab 坐标上**（右移 = tab 增大 = 胶囊右移）。
-                    // 之前把「页面滚动方向」的相对量套到胶囊绝对坐标上，
-                    // 于是手指左移、胶囊右移——这一次以参考实现为准。
-                    if (tabPx <= 0f) return@pointerInput
-                    val slop = viewConfiguration.touchSlop
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        val tracker = VelocityTracker()
-                        tracker.addPosition(down.uptimeMillis, down.position)
-                        // 锚点 = 按下瞬间胶囊的位置（不是手指所在位置）：手感与参考实现一致。
-                        val anchor = dragTabPos ?: capsuleTab.value
-                        var travelled = 0f
-                        var dragging = false
-                        var current = anchor
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!change.pressed) break
-                            tracker.addPosition(change.uptimeMillis, change.position)
-                            travelled = change.position.x - down.position.x
-                            if (!dragging && kotlin.math.abs(travelled) > slop) dragging = true
-                            if (dragging) {
-                                current = dragTab(anchor, travelled, tabPx)
-                                dragTabPos = current
-                                change.consume()
-                            }
-                        }
-                        if (dragging) {
-                            val target = landingTab(current, tracker.calculateVelocity().x, tabPx)
-                            dragTabPos = null
-                            // 指针手势的作用域是 restricted 的，动画必须在外部 scope 里跑
-                            // （参考实现同样用 animationScope.launch）。
-                            scope.launch {
-                                capsuleTab.snapTo(current)
-                                capsuleTab.animateTo(target.toFloat(), snapSpec)
-                            }
-                            if (pagerState.currentPage != target) {
-                                scope.launch { pagerState.animateScrollToPage(target, animationSpec = snapSpec) }
-                            }
-                        } else {
-                            dragTabPos = null
+            // 手势层是**父节点**（包住底板 / 胶囊 / 图标三层），
+            // 所以不管手指落在图标上还是底栏空白处，都能收到事件。
+            // contentAlignment = Center：56dp 的胶囊在 64dp 的底栏里上下各留 4dp
+            //（之前是 TopStart，胶囊整体偏上 4dp）。图标行 / 底板都是 matchParentSize，不受影响。
+            Box(Modifier.fillMaxSize().pointerInput(rtl, slotPx) {
+                if (tabPx <= 0f) return@pointerInput
+                val slop = viewConfiguration.touchSlop
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val tracker = VelocityTracker()
+                    tracker.addPosition(down.uptimeMillis, down.position)
+                    // 锚点 = 按下瞬间胶囊的位置（不是手指位置）：手感与参考实现一致，
+                    // 不会因为「抓在胶囊边上」而突然对不齐。
+                    val anchor = dragTabPos ?: capsuleTab.value
+                    var current = anchor
+                    var travelled = 0f
+                    var dragging = false
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        tracker.addPosition(change.uptimeMillis, change.position)
+                        travelled = change.position.x - down.position.x
+                        // 阈值只决定「这次算拖动还是轻点」，**不做位移死区**：
+                        // 手指一动胶囊就走（之前要等超过 8dp 才开始跟，主观上就是不跟手）。
+                        if (kotlin.math.abs(travelled) > slop) dragging = true
+                        if (travelled != 0f) {
+                            current = dragTab(anchor, travelled, tabPx)
+                            dragTabPos = current
+                            if (dragging) change.consume()
                         }
                     }
-                }) {
-                // ② 图标层：图标**永远可见**；只有胶囊正下方的那个 tab 在按压/拖动时淡出
-                //    （参考实现 LocalLiquidBottomTabOriginalAlpha 的同款做法），
-                //    这样胶囊里透出的是背景，而不是一团糊住的图标。
+                    // 拖动 → 按速度前瞻吸附；轻点 → 点在哪一格就滑到哪一格。
+                    val target = if (dragging) landingTab(current, tracker.calculateVelocity().x, tabPx)
+                                 else tapTab(down.position.x, tabPx, sideInsetPx)
+                    scope.launch {
+                        // 先 snap 到手指停下的位置，再动画到落点：
+                        // dragTabPos 在 snap 之后清掉，切回 capsuleTab 时不会回跳一帧。
+                        capsuleTab.snapTo(current)
+                        dragTabPos = null
+                        capsuleTab.animateTo(target.toFloat(), if (dragging) snapSpec else glideSpec)
+                    }
+                    if (pagerState.currentPage != target) {
+                        scope.launch {
+                            pagerState.animateScrollToPage(
+                                target, animationSpec = if (dragging) snapSpec else glideSpec)
+                        }
+                    }
+                }
+            }) {
+                // ① 玻璃底板：只负责磨砂/折射，不承载图标（图标在最上层）。
+                //    位置不变，所以胶囊的 backdrop 采样区域照旧。
+                Box(Modifier.matchParentSize().dockContainer(dockBackdrop))
+
+                // ② 玻璃胶囊：与底板同级、后绘制，画在**图标之下**。
+                //    横向位置统一由 DragMath.capsuleOffset 导出（与 DragMathTest 同一份公式）。
+                //    缩放只到 106%：上一版的 139% 会越过邻格，把两三个图标压在下面。
+                val capsuleX = with(LocalDensity.current) {
+                    capsuleOffset(shownTab, tabPx, sideInsetPx).toDp()
+                }
+                Box(Modifier
+                    // CenterStart：竖向居中（56dp 在 64dp 里上下各 4dp），横向仍从 x = 0 起算，
+                    // 这样 offset 里的 capsuleX 就是胶囊的真实左缘（Center 会把横向也对半偏）。
+                    .align(Alignment.CenterStart)
+                    .offset(x = capsuleX)
+                    .size(width = tabDp, height = 56.dp)
+                    .graphicsLayer {
+                        val scale = 1f + .06f * pressProgress
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                    .dockLens(lensBackdrop, pressProgress))
+
+                // ③ 图标层：**最上层**，永远清晰；离胶囊越近放大越多（放大液态处理）。
                 Row(Modifier.fillMaxSize()) {
                     DockItems(
-                        tab = nearestTab(shownTab), badge = badge, interactions = interactions,
-                        // 胶囊覆盖到哪个 tab，就把哪个 tab 的内容让给胶囊（透明），其余保持可见。
-                        fadedIndex = if (pressProgress > .02f) nearestTab(shownTab) else -1,
+                        shownTab = shownTab, badge = badge, interactions = interactions,
                         onSelect = { index ->
+                            // 无障碍 / 兜底入口：正常触摸由上面手势层统一处理胶囊与翻页，
+                            // 这里只负责「点了就翻过去」，两者目标与动画一致，不会互相打架。
                             scope.launch {
-                                capsuleTab.animateTo(index.toFloat(), snapSpec)
-                                pagerState.animateScrollToPage(index, animationSpec = snapSpec)
+                                capsuleTab.animateTo(index.toFloat(), glideSpec)
+                                pagerState.animateScrollToPage(index, animationSpec = glideSpec)
                             }
                         })
                 }
-                // ③ 给胶囊做折射采样的副本（含标签文字），alpha = 0，只进 backdrop。
-                Row(Modifier.fillMaxSize().alpha(0f).layerBackdrop(labelsBackdrop).clearAndSetSemantics { }) {
-                    DockItems(nearestTab(shownTab), badge, interactions, -1, interactive = false) { }
-                }
             }
-
-            // ④ 玻璃胶囊：与容器同级、后绘制，所以能越出底栏边界（按压 78/56 放大）。
-            //    translationX 与手指同向；普通模式下走实心分支。
-            //    横向位置统一由 DragMath.capsuleOffset 导出（与 DragMathTest 覆盖的公式同一份）。
-            val capsuleX = with(LocalDensity.current) {
-                capsuleOffset(shownTab, tabPx, sideInsetPx).toDp()
-            }
-            Box(Modifier
-                .offset(x = capsuleX)
-                .size(width = tabDp, height = 56.dp)
-                .graphicsLayer {
-                    val scale = 1f + .39f * pressProgress
-                    scaleX = scale
-                    scaleY = scale
-                }
-                .dockLens(lensBackdrop, pressProgress))
         }
     }
 }
@@ -238,30 +246,35 @@ fun PureStartShell(repository: SettingsRepository) {
 /**
  * 底栏内容：图标 + 标签。
  *
- * `fadedIndex` 对应的 tab 整列淡出（alpha 0），用于让玻璃胶囊那一格干净地
- * 透出背景玻璃——参考实现就是靠这一步保证「图标不会被胶囊糊住」。
+ * `shownTab` 是胶囊当前的 tab 坐标（小数）：每个 tab 按距离算自己的放大系数与强调度，
+ * 拖动时连续变化 —— 胶囊滑到哪，那一格就「放大」到哪，旁边两格跟着过渡放大，
+ * 图标本身**始终不透明、不被胶囊覆盖**（胶囊画在这一层的下面）。
  */
 @Composable
-private fun RowScope.DockItems(tab: Int, badge: Int, interactions: List<MutableInteractionSource>,
-                              fadedIndex: Int, interactive: Boolean = true,
+private fun RowScope.DockItems(shownTab: Float, badge: Int,
+                              interactions: List<MutableInteractionSource>,
                               onSelect: (Int) -> Unit) {
     val titles = listOf("首页", "应用", "拓展", "设置")
     val icons = listOf(R.drawable.ic_tab_home, R.drawable.ic_tab_apps,
         R.drawable.ic_tab_extension, R.drawable.ic_tab_settings)
+    val active = nearestTab(shownTab)
     titles.forEachIndexed { index, title ->
-        val click = if (interactive) Modifier.clickable(interactionSource = interactions[index],
-            indication = null, role = Role.Tab) { onSelect(index) } else Modifier
-        val fade by androidx.compose.animation.core.animateFloatAsState(
-            if (index == fadedIndex) 0f else 1f,
-            androidx.compose.animation.core.tween(140), label = "dockFade$index")
-        Column(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(28.dp)).then(click)
-            .graphicsLayer { alpha = fade },
+        val click = Modifier.clickable(interactionSource = interactions[index],
+            indication = null, role = Role.Tab) { onSelect(index) }
+        // 距离胶囊的亲近度（0..1）与放大系数（1.00..1.28）都来自 DragMath，纯函数可测。
+        val weight = proximity(shownTab, index)
+        val scale = proximityScale(shownTab, index)
+        val isActive = index == active
+        val tint = if (isActive) MaterialTheme.colorScheme.primary
+                   else MaterialTheme.colorScheme.onSurface.copy(alpha = .70f + .30f * weight)
+        Column(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(28.dp)).then(click),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Box {
+            Box(Modifier.graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }) {
                 Icon(painterResource(icons[index]), contentDescription = null,
-                    modifier = Modifier.size(22.dp),
-                    tint = if (tab == index) MaterialTheme.colorScheme.primary
-                           else MaterialTheme.colorScheme.onSurface)
+                    modifier = Modifier.size(22.dp), tint = tint)
                 if (index == 1 && badge > 0) Text(badge.toString(),
                     modifier = Modifier.align(Alignment.TopEnd).offset(x = 9.dp, y = (-5).dp)
                         .background(MaterialTheme.colorScheme.error, RoundedCornerShape(50))
@@ -269,8 +282,13 @@ private fun RowScope.DockItems(tab: Int, badge: Int, interactions: List<MutableI
                     color = Color.White, style = MaterialTheme.typography.labelSmall)
             }
             Text(title, style = MaterialTheme.typography.labelSmall,
-                color = if (tab == index) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurface)
+                modifier = Modifier.graphicsLayer {
+                    // 标签只做很轻的跟随（1.00 → 1.06），避免文字糊成一团
+                    val labelScale = 1f + .06f * weight
+                    scaleX = labelScale
+                    scaleY = labelScale
+                },
+                color = tint)
         }
     }
 }

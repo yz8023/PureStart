@@ -12,8 +12,9 @@ assert any(c.get(a+'name') == 'android.intent.category.LAUNCHER' for c in alias.
 assert any(c.get(a+'name') == 'de.robv.android.xposed.category.MODULE_SETTINGS' for c in activity.iter('category'))
 assert any(r.get(a+'name') == '.IconControlReceiver' for r in app.findall('receiver'))
 shell = (root / 'app/src/main/java/com/yz8023/purestart/ui/PureStartShell.kt').read_text()
-# v15.1.7：底栏结构与 yz8023/UI 的 LiquidBottomTabs 对齐（容器 / 图标层 / 胶囊三层），
-# 胶囊画在 dockContainer 之外（否则被 drawBackdrop 裁剪），且在图标层之后。
+# 底栏三层（v15.2 第三阶段）：底板 → 胶囊 → 图标层。
+# 关键顺序契约：图标层必须画在**最后**（最上层），胶囊只当液态底 —— 上一版胶囊画在图标之上
+# 并放大到 139%，滑动时会把邻格两三个 SVG 压在下面（用户看到的「遮挡 + 模糊」）。
 assert '.dockContainer(dockBackdrop)' in shell and '.dockLens(lensBackdrop, pressProgress)' in shell
 assert 'HorizontalPager(' in shell and 'rememberPagerState(pageCount = { 4 })' in shell
 assert 'settledPage' in shell
@@ -22,14 +23,18 @@ def index_of(text, needle, start=0):
     assert pos >= 0, '找不到 ' + needle
     return pos
 
-assert index_of(shell, '.dockLens(') > index_of(shell, '.dockContainer(dockBackdrop)'), '胶囊必须在底栏容器之外绘制'
+assert index_of(shell, '.dockLens(') > index_of(shell, '.dockContainer(dockBackdrop)'), '胶囊必须画在底板之上'
 
-# 图标层（可见的那一份）必须在胶囊之前；透明采样副本在容器内部。
-icon_calls = [i for i in range(len(shell)) if shell.startswith('DockItems(', i)]
-assert len(icon_calls) >= 2, '需要「可见图标层」与「胶囊采样副本」两份 DockItems'
-assert index_of(shell, '.dockLens(') > icon_calls[0], '玻璃胶囊必须在图标层之后绘制，否则会盖住图标'
+# 图标层只有一份（采样副本已删除），且在胶囊之后绘制。
+occ = [i for i in range(len(shell)) if shell.startswith('DockItems(', i)]
+defs = [i for i in occ if 'private fun RowScope.' in shell[max(0, i - 30):i]]
+calls = [i for i in occ if i not in defs]
+assert len(calls) == 1, '可见图标层只能有一份（v15.2 第三阶段删掉了 alpha=0 的采样副本）'
+assert calls[0] > index_of(shell, '.dockLens('), '图标层必须画在胶囊之后：滑动时图标放大且永不被胶囊盖住'
 assert 'GlassSceneRoot {' in shell and 'currentSceneBackdrop()' in shell, '背景层必须由根节点统一提供'
 assert 'landingTab(' in shell and 'animateScrollToPage(' in shell
+assert 'tapTab(' in shell and 'glideSpec' in shell, '轻点必须缓速滑到手指所在的格（tapTab + glideSpec）'
+
 math = (root / 'app/src/main/java/com/yz8023/purestart/ui/DragMath.kt').read_text()
 assert 'fun landingTab(' in math and 'fun tabDelta(' in math
 home = (root / 'app/src/main/java/com/yz8023/purestart/ui/HomeScreen.kt').read_text()
