@@ -5,6 +5,7 @@ Usage: python3 tests/check_backend_unchanged.py [baseline-git-ref]
 Default baseline is the commit from which the UI migration started. Checks the
 working tree, including staged and unstaged changes, against that commit.
 """
+import difflib
 import subprocess
 import sys
 import pathlib
@@ -12,18 +13,24 @@ import re
 import xml.etree.ElementTree as ET
 
 BASELINE = '3bb6bbd'
+# v15.2：源码统一到 AGP 默认布局 app/src/main/java/**（基线提交里还在 src/**）。
+# 这里只做「路径搬家」映射，内容仍然逐字节对比：搬家不等于允许改内容。
 FILES = [
-    'src/com/yz8023/purestart/DexFinder.java',
-    'src/com/yz8023/purestart/HookGate.java',
-    'src/com/yz8023/purestart/HookStateProvider.java',
-    'src/com/yz8023/purestart/IconControlReceiver.java',
-    'src/com/yz8023/purestart/Targets.java',
-    'xposed/java_init.list', 'xposed/scope.list',
+    ('src/com/yz8023/purestart/DexFinder.java', 'app/src/main/java/com/yz8023/purestart/DexFinder.java'),
+    ('src/com/yz8023/purestart/HookGate.java', 'app/src/main/java/com/yz8023/purestart/HookGate.java'),
+    ('src/com/yz8023/purestart/HookStateProvider.java',
+     'app/src/main/java/com/yz8023/purestart/HookStateProvider.java'),
+    ('src/com/yz8023/purestart/IconControlReceiver.java',
+     'app/src/main/java/com/yz8023/purestart/IconControlReceiver.java'),
+    ('src/com/yz8023/purestart/Targets.java', 'app/src/main/java/com/yz8023/purestart/Targets.java'),
+    ('xposed/java_init.list', 'xposed/java_init.list'),
+    ('xposed/scope.list', 'xposed/scope.list'),
 ]
 # Prefs.java 单独按「允许新增行」的方式核对：v15.1.2 设置了新增一条界面偏好键
 # （页面左右滑动开关），键名必须集中在 Prefs.java。除下列新增行外其余必须与基线一致，
 # Hook 相关键与读写方法仍然受保护。
-PREFS_FILE = 'src/com/yz8023/purestart/Prefs.java'
+PREFS_BASELINE = 'src/com/yz8023/purestart/Prefs.java'
+PREFS_FILE = 'app/src/main/java/com/yz8023/purestart/Prefs.java'
 PREFS_ALLOWED_ADDITIONS = {
     '/** 页面左右滑动开关（v15.1.2 新增；默认开） */',
     'public static final String KEY_PAGE_SWIPE = "set_page_swipe";',
@@ -58,26 +65,59 @@ PREFS_ALLOWED_ADDITIONS = {
     '* 拉到 0 时卡片只剩一圈极淡的描边，完全透出背景。',
     '*/',
     'public static float cardTint(Context c) { return clamp(sp(c).getInt(KEY_CARD_TINT, 10) / 100f, 0f, .40f); }',
+    # v15.1.6：普通模式（实心卡片）开关，纯界面偏好键，同样不改动任何 Hook 键
+    '/** 普通模式（v15.1.6）：true = 实心 Material 卡片，不做玻璃/折射/模糊 */',
+    'public static final String KEY_PLAIN_MODE = "plain_mode";',
+    '* 普通模式（对照 yz8023/UI 的 VisualMode.Normal）：卡片是**实心** Material 表面，',
+    '* 不采样背景、不模糊、不折射；深色主题用深色实心、浅色主题用白色实心卡片。',
+    'public static boolean plainMode(Context c) { return sp(c).getBoolean(KEY_PLAIN_MODE, false); }',
+    'public static void setPlainMode(Context c, boolean v) { sp(c).edit().putBoolean(KEY_PLAIN_MODE, v).apply(); }',
 }
+
+def show(ref, path, root):
+    """基线里的文件内容；文件在基线里不存在时返回 None。"""
+    result = subprocess.run(['git', 'show', ref + ':' + path], cwd=root,
+                            capture_output=True, text=True)
+    return result.stdout if result.returncode == 0 else None
+
+
+def unified(base_text, current_text, base_label, current_label):
+    return list(difflib.unified_diff(base_text.splitlines(), current_text.splitlines(),
+                                     fromfile=base_label, tofile=current_label, lineterm=''))
+
 
 def main():
     ref = sys.argv[1] if len(sys.argv) > 1 else BASELINE
     root = subprocess.run(['git', 'rev-parse', '--show-toplevel'], check=True,
                           capture_output=True, text=True).stdout.strip()
-    result = subprocess.run(['git', 'diff', '--exit-code', '--no-ext-diff', ref,
-                             '--', *FILES], cwd=root)
-    if result.returncode:
-        print('FAIL: backend differs from baseline (or Git could not compare it).')
-        return 1
-    prefs_diff = subprocess.run(['git', 'diff', '--no-ext-diff', ref, '--', PREFS_FILE],
-                                cwd=root, capture_output=True, text=True)
-    if prefs_diff.returncode:
-        print('FAIL: could not diff', PREFS_FILE)
-        return 1
-    unexpected = []
-    for line in prefs_diff.stdout.splitlines():
-        if line.startswith(('+++', '---', '@@', 'diff ', 'index ', 'new file', 'deleted file')):
+    failures = 0
+    for baseline_path, current_path in FILES:
+        baseline_text = show(ref, baseline_path, root)
+        current_file = pathlib.Path(root, current_path)
+        if baseline_text is None or not current_file.exists():
+            print(f'FAIL: missing {baseline_path} in baseline or {current_path} in worktree')
+            failures += 1
             continue
+        if current_file.read_text() != baseline_text:
+            failures += 1
+            print(f'FAIL: {current_path} differs from baseline {baseline_path}:')
+            for line in unified(baseline_text, current_file.read_text(), baseline_path, current_path):
+                print('      ' + line)
+    if failures:
+        return 1
+    prefs_baseline = show(ref, PREFS_BASELINE, root)
+    prefs_diff = subprocess.run(
+        ['git', 'diff', '--no-ext-diff', ref, '--src-prefix=', '--dst-prefix=', '--', PREFS_BASELINE],
+        cwd=root, capture_output=True, text=True)
+    if prefs_diff.returncode:
+        print('FAIL: could not diff', PREFS_BASELINE)
+        return 1
+    current_prefs = pathlib.Path(root, PREFS_FILE).read_text()
+    prefs_diff_text = '\n'.join(
+        line for line in unified(prefs_baseline, current_prefs, PREFS_BASELINE, PREFS_FILE)
+        if not line.startswith(('+++', '---', '@@', 'diff ', 'index ')))
+    unexpected = []
+    for line in prefs_diff_text.splitlines():
         if line.startswith(('+', '-')):
             body = line[1:].strip()
             if body and body not in PREFS_ALLOWED_ADDITIONS:
@@ -96,7 +136,7 @@ def main():
     if stable_lines(current) != stable_lines(baseline):
         print('FAIL: non-version module.prop metadata differs from baseline')
         return 1
-    manifest = ET.parse(pathlib.Path(root, 'AndroidManifest.xml')).getroot()
+    manifest = ET.parse(pathlib.Path(root, 'app/src/main/AndroidManifest.xml')).getroot()
     namespace = '{http://schemas.android.com/apk/res/android}'
     values = dict(line.split('=', 1) for line in current.splitlines() if '=' in line)
     if (values.get('version') != 'v' + manifest.attrib[namespace + 'versionName'] or
