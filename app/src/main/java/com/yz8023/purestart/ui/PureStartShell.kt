@@ -58,13 +58,14 @@ import com.yz8023.purestart.repository.SettingsRepository
  *     离胶囊越近放大越多（`DragMath.proximityScale`，1.00 → 1.28），
  *     拖动过程中连续变化 —— 这就是「放大液态处理」，不再有任何淡出。
  *
- * ## 跟手与缓速
+ * ## 跟手（v15.1.9：绝对定位）
  *
- * - 拖动：锚点 = 按下瞬间的胶囊位置，手指位移**直接**加到 tab 坐标上
- *   （`dragTab(anchor, travelled, tabPx)`，右正），并且**没有触摸阈值死区**：
- *   手指移动的第一像素胶囊就跟着走（阈值只用来判断这次手势算拖动还是轻点）。
- * - 轻点：`tapTab(按下点 x)` 算出点在哪一格，胶囊用 `glideSpec`（比吸附慢一档）
- *   **缓速滑过去**，而不是原来的 `snapSpec` 瞬移。
+ * - **按下即到位**：`tabAtCenter(按下点 x)` 把手指横坐标换算成「胶囊中心正好压在手指下面」的
+ *   tab 坐标，按下那一帧胶囊就出现在手指下面 —— 胶囊在左边、手指按在右边时立刻跳过去，
+ *   不再「留在原地跟着手指左右晃」。
+ * - **拖动 1:1**：每帧都取手指的绝对横坐标重算，胶囊中心与手指像素严格重合，不累加、不漂移；
+ *   触摸阈值只用来判断「这次算拖动还是轻点」。
+ * - **松手吸附**：拖动走 `snapSpec`（速度前瞻），轻点走 `glideSpec` 在**半格之内**缓速归位。
  */
 @Composable
 fun PureStartShell(repository: SettingsRepository) {
@@ -163,10 +164,11 @@ fun PureStartShell(repository: SettingsRepository) {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val tracker = VelocityTracker()
                     tracker.addPosition(down.uptimeMillis, down.position)
-                    // 锚点 = 按下瞬间胶囊的位置（不是手指位置）：手感与参考实现一致，
-                    // 不会因为「抓在胶囊边上」而突然对不齐。
-                    val anchor = dragTabPos ?: capsuleTab.value
-                    var current = anchor
+                    // 绝对定位（v15.1.9）：按下瞬间就把胶囊**放到手指所在的格**上，
+                    // 不再「以胶囊当前位置为锚 + 手指相对位移」。后者在「胶囊在左、手指在右」
+                    // 时会让胶囊留在原地只跟着手指晃动，得先攒够一格位移才挪过去。
+                    var current = tabAtCenter(down.position.x, tabPx, sideInsetPx)
+                    dragTabPos = current
                     var travelled = 0f
                     var dragging = false
                     while (true) {
@@ -175,14 +177,12 @@ fun PureStartShell(repository: SettingsRepository) {
                         if (!change.pressed) break
                         tracker.addPosition(change.uptimeMillis, change.position)
                         travelled = change.position.x - down.position.x
-                        // 阈值只决定「这次算拖动还是轻点」，**不做位移死区**：
-                        // 手指一动胶囊就走（之前要等超过 8dp 才开始跟，主观上就是不跟手）。
+                        // 阈值只决定「这次算拖动还是轻点」；位置永远取手指的**绝对**横坐标，
+                        // 胶囊中心因此始终压在手指下面（1:1，不漂移）。
                         if (kotlin.math.abs(travelled) > slop) dragging = true
-                        if (travelled != 0f) {
-                            current = dragTab(anchor, travelled, tabPx)
-                            dragTabPos = current
-                            if (dragging) change.consume()
-                        }
+                        current = tabAtCenter(change.position.x, tabPx, sideInsetPx)
+                        dragTabPos = current
+                        if (dragging) change.consume()
                     }
                     // 拖动 → 按速度前瞻吸附；轻点 → 点在哪一格就滑到哪一格。
                     val target = if (dragging) landingTab(current, tracker.calculateVelocity().x, tabPx)

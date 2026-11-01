@@ -126,6 +126,12 @@ android {
         resources.excludes += "/META-INF/*.kotlin_builtins"
         resources.excludes += "/kotlin/**"
         resources.excludes += "/*.txt"
+        // v15.1.9：第三方库塞进来的 LICENSE / NOTICE（AGP 的 "/*.txt" 只匹配根目录，
+        // 匹配不到嵌套路径）。注意**不能**整段排除 META-INF/*：xposed 模块元数据
+        // （META-INF/xposed/{module.prop,scope.list,java_init.list}）就在那里。
+        resources.excludes += "**/LICENSE.txt"
+        resources.excludes += "**/NOTICE.txt"
+        resources.excludes += "/META-INF/androidx/**"
         // kotlinx-coroutines 调试探针，release 不需要
         resources.excludes += "/DebugProbesKt.bin"
     }

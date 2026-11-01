@@ -30,6 +30,16 @@ import kotlin.math.roundToInt
  *   方向还是相反。根因是把「页面滚动方向」这套相对量硬套到「胶囊绝对坐标」上。
  *
  * v15.1.7 起只保留参考实现这一套：手指像素位移 → tab 位移（右正）→ 胶囊像素位移（右正）。
+ *
+ * ## v15.1.9：相对位移 → **绝对定位**
+ *
+ * v15.1.7/15.1.8 用的是相对模型 `dragTab(锚点, 手指位移)`：胶囊在左边、手指按在右边时，
+ * 胶囊**仍停在原地**，只按手指的相对位移左右晃；必须先把位移「攒」到跨格才挪过去，
+ * 手指和胶囊完全对不上（用户看到的就是「在原地跟着手指晃」）。
+ *
+ * 现在唯一的生产模型是**绝对定位**：[tabAtCenter] 直接把「手指横坐标」换算成
+ * 「胶囊中心正好落在手指上」的 tab 坐标 —— 按下即到位，之后每帧 1:1 跟随。
+ * 相对模型只剩 [tabDelta] 一处，且仅用于 [landingTab] 的速度前瞻。
  */
 
 /** 每个 tab 的宽度：总宽减去两侧内缩后四等分（参考实现：`(W - 8dp) / tabsCount`）。 */
@@ -49,9 +59,20 @@ fun tabAtPosition(x: Float, tabWidth: Float, sideInset: Float = 0f): Float {
     return ((x - sideInset) / tabWidth).coerceIn(0f, 4f)
 }
 
-/** 拖动中的胶囊 tab 坐标：以按下点为锚 + 手指位移（右移 → 右移）。 */
-fun dragTab(anchorTab: Float, dragPx: Float, tabWidth: Float): Float =
-    (anchorTab + tabDelta(dragPx, tabWidth)).coerceIn(0f, 3f)
+/**
+ * **绝对定位**（v15.1.9 起唯一的生产模型）：手指横坐标 → 「胶囊中心正好落在手指上」的 tab 坐标。
+ *
+ * 胶囊左缘 = 内缩 + tab × 槽宽 ⇒ 中心 = 内缩 + tab × 槽宽 + 槽宽/2，
+ * 令「中心 = 手指」解得 `tab = (x - 内缩) / 槽宽 - 0.5`。
+ *
+ * 减 0.5 是关键：不减的话，手指按在某一格的左半部分时胶囊会整体偏右半格；
+ * 减掉之后 [capsuleOffset] 出来的胶囊中心与手指像素**严格重合**（见 DragMathTest）。
+ */
+@JvmOverloads
+fun tabAtCenter(x: Float, tabWidth: Float, sideInset: Float = 0f): Float {
+    if (tabWidth <= 0f) return 0f
+    return ((x - sideInset) / tabWidth - 0.5f).coerceIn(0f, 3f)
+}
 
 /**
  * 松手落点：把「当下 tab 坐标 + 速度前瞻」四舍五入到最近槽位。
@@ -71,14 +92,14 @@ fun landingTab(tab: Float, velocityPx: Float, tabWidth: Float): Int {
 fun nearestTab(tab: Float): Int = tab.roundToInt().coerceIn(0, 3)
 
 /**
- * 轻点落点：手指按下的横坐标属于哪一格。**点到哪里，胶囊就缓速滑到哪一格**。
+ * 轻点落点：手指按下的横坐标属于哪一格（按「胶囊中心对齐手指」换算后取整）。
  *
- * 上一版轻点只走 child clickable，胶囊动画用的是吸附弹簧（stiffness 700~1000），
- * 观感是「跳过去」；判定本身也只看控件命中区，不看手指实际位置。
+ * 胶囊在按下瞬间就已经跳到手指位置（见 [tabAtCenter]），这个结果只用于松手后的
+ * 半格内吸附与翻页。
  */
 @JvmOverloads
 fun tapTab(x: Float, tabWidth: Float, sideInset: Float = 0f): Int =
-    nearestTab(tabAtPosition(x, tabWidth, sideInset))
+    nearestTab(tabAtCenter(x, tabWidth, sideInset))
 
 /**
  * 图标放大系数的最大增量（「放大液态处理」）。

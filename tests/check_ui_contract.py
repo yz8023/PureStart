@@ -34,6 +34,7 @@ assert calls[0] > index_of(shell, '.dockLens('), '图标层必须画在胶囊之
 assert 'GlassSceneRoot {' in shell and 'currentSceneBackdrop()' in shell, '背景层必须由根节点统一提供'
 assert 'landingTab(' in shell and 'animateScrollToPage(' in shell
 assert 'tapTab(' in shell and 'glideSpec' in shell, '轻点必须缓速滑到手指所在的格（tapTab + glideSpec）'
+assert 'tabAtCenter(' in shell, '底栏必须按手指绝对位置定位胶囊（按下即到位，不再就地晃动）'
 
 math = (root / 'app/src/main/java/com/yz8023/purestart/ui/DragMath.kt').read_text()
 assert 'fun landingTab(' in math and 'fun tabDelta(' in math

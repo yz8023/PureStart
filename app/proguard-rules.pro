@@ -41,6 +41,14 @@
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
 
-# 低内存主机上 R8 的优化阶段容易 OOM（本项目在 1C/1G 构建机上验证过）；只做
-# 收缩 + 混淆已经能拿到绝大部分体积收益。若有富余内存，可试着删掉这一行再对比产物。
--dontoptimize
+# ---------------------------------------------------------------------------
+# 4) 体积：打开优化阶段（v15.1.9）
+# ---------------------------------------------------------------------------
+# 旧规则里有 `-dontoptimize`（当年为了避开低内存主机的 OOM）。它同时关掉了 R8 的
+# 内联 / 类合并 / 常量传播 —— 这些才是 dex 体积的大头（dex 占整包 ~90%），
+# 只做收缩 + 混淆最多只能删掉「完全没人引用」的类。
+#
+# 打开前后的实测对比见 RELEASE-v15.1.9.md。若在 1C/1G 构建机上 OOM，可临时加回
+# `-dontoptimize`（或用 `org.gradle.jvmargs=-Xmx` 提高堆）——功能不受影响，只是产物变大。
+-allowaccessmodification
+-repackageclasses 'o'

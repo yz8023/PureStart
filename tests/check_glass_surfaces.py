@@ -59,9 +59,14 @@ assert 'systemWallpaperStatus' in repo, '读不到时必须给出可读原因'
 assert 'MANAGE_EXTERNAL_STORAGE' in manifest_text, 'Android 14+ 读壁纸必须声明该权限'
 assert 'grantLauncher' in settings, '设置页需要一键跳转授权页'
 
-# 5) 底栏方向：只有一套「手指右移 = tab 变大」的约定（对照 LiquidBottomTabs）
-assert 'fun tabDelta(' in math and 'fun dragTab(' in math and 'fun capsuleOffset(' in math
-assert 'dragTab(anchor, travelled, tabPx)' in shell, '底栏必须按手指位移直接推动胶囊'
+# 5) 底栏方向 + 定位模型：只有一套「手指右移 = tab 变大」的约定
+#    v15.1.9 起生产模型是**绝对定位**（tabAtCenter：胶囊中心压在手指上），
+#    相对模型 dragTab(锚点, 位移) 已删除 —— 它就是「胶囊在左、手指在右时留在原地晃」的根因。
+assert 'fun tabDelta(' in math and 'fun capsuleOffset(' in math and 'fun tabAtCenter(' in math
+assert 'fun dragTab(' not in math and 'dragTab(' not in shell, \
+    '相对位移模型（dragTab）必须删除：按下即用 tabAtCenter 绝对定位到手指位置'
+assert 'tabAtCenter(down.position.x, tabPx, sideInsetPx)' in shell, '按下瞬间必须绝对定位到手指所在的格'
+assert 'tabAtCenter(change.position.x, tabPx, sideInsetPx)' in shell, '拖动中每帧都按手指绝对横坐标定位'
 assert 'capsuleOffset' in math, '胶囊像素位置必须由 tab 坐标线性导出'
 assert 'slotDelta' not in shell and 'slotDelta' not in math, \
     'v15.1.6 的「手指左移 = 槽位 +1」换算必须彻底删除（它就是反向的根源）'
